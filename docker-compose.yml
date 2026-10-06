@@ -1,0 +1,59 @@
+# Окружение разработки (docs/spec/18 Развёртывание и эксплуатация.md, раздел 3):
+# postgres, gotenberg, mailpit и эмуляторы. server, worker и Vite запускаются на машине разработчика (make dev).
+name: landlord-dev
+
+services:
+  postgres:
+    build: { context: ./deploy, dockerfile: postgres-dev.Dockerfile }
+    image: landlord-postgres:dev
+    environment:
+      POSTGRES_DB: landlord
+      POSTGRES_USER: landlord_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:-owner-dev-password}
+      LANDLORD_APP_PASSWORD: ${DB_APP_PASSWORD:-app-dev-password}
+      TZ: Europe/Moscow
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U landlord_owner -d landlord"]
+      interval: 2s
+      retries: 30
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    command: ["gotenberg", "--chromium-disable-javascript=true", "--api-timeout=30s"]
+    ports: ["3000:3000"]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    environment: { TZ: Europe/Moscow }
+    ports: ["1025:1025", "8025:8025"]
+
+  tbank-mock:
+    build: ./mocks/tbank
+    image: landlord-tbank-mock:dev
+    environment:
+      MOCK_PUBLIC_URL: http://localhost:8081
+      TERMINALS: "${TBANK_TERMINAL_KEY:-LandlordDemo}:${TBANK_PASSWORD:-demo-terminal-password}"
+      STATE_FILE: /data/tbank-state.json
+    ports: ["8081:8081"]
+    volumes: ["mockdata:/data"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  atol-mock:
+    build: ./mocks/atol
+    image: landlord-atol-mock:dev
+    environment:
+      MOCK_PUBLIC_URL: http://localhost:8082
+      LOGIN: ${ATOL_LOGIN:-demo}
+      PASSWORD: ${ATOL_PASSWORD:-demo}
+      GROUP_CODE: ${ATOL_GROUP_CODE:-landlord-demo}
+      STATE_FILE: /data/atol-state.json
+    ports: ["8082:8082"]
+    volumes: ["mockdata:/data"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+volumes:
+  pgdata: {}
+  mockdata: {}

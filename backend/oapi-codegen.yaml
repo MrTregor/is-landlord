@@ -1,0 +1,10 @@
+# Генерация сервера из api/openapi.yaml (make gen-api). Результат не правится руками.
+package: api
+generate:
+  chi-server: true
+  strict-server: true
+  models: true
+  embedded-spec: true
+output: internal/api/api.gen.go
+output-options:
+  skip-prune: true

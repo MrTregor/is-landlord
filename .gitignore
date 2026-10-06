@@ -1,0 +1,16 @@
+.env
+/data/
+backend/tmp/
+backend/data/
+backend/coverage.out
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+*.exe
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

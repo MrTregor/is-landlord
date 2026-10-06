@@ -1,0 +1,56 @@
+# golangci-lint v2. Запуск: make lint.
+version: "2"
+run:
+  build-tags: [integration]
+linters:
+  default: standard
+  enable:
+    - forbidigo
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*database/sql.DB).Close
+        - (io.ReadCloser).Close
+        - (*github.com/jackc/pgx/v5.Conn).Close
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^time\.Now$
+          msg: "Используйте platform/clock.Clock (time.Now() вне platform/clock запрещён)"
+        - pattern: ^(float32|float64)$
+          msg: "Дробные типы для денег, ставок, тарифов и показаний запрещены: money.Kop или decimal.Decimal"
+    gosec:
+      excludes:
+        - G104 # необработанные ошибки — проверяет errcheck
+  exclusions:
+    generated: strict
+    paths:
+      - internal/api/api.gen.go
+      - internal/api/stubs.gen.go
+      - internal/platform/db/sqlc
+    rules:
+      - path: internal/platform/clock/
+        linters: [forbidigo]
+      - path: internal/api/stubgen/
+        linters: [gosec]
+      - path: _test\.go
+        linters: [gosec, noctx]
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [landlord/backend]

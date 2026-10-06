@@ -1,0 +1,46 @@
+# Генерация типизированного кода из SQL (make gen-db). Результат не правится руками.
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: sqlc
+        out: internal/platform/db/sqlc
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        emit_interface: true
+        overrides:
+          - db_type: uuid
+            go_type: { import: github.com/google/uuid, type: UUID }
+          - db_type: uuid
+            nullable: true
+            go_type: { import: github.com/google/uuid, type: UUID, pointer: true }
+          - db_type: date
+            go_type: { import: landlord/backend/internal/platform/date, type: Date }
+          - db_type: date
+            nullable: true
+            go_type: { import: landlord/backend/internal/platform/date, type: Date, pointer: true }
+          - db_type: pg_catalog.numeric
+            go_type: { import: github.com/shopspring/decimal, type: Decimal }
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type: { import: github.com/shopspring/decimal, type: Decimal, pointer: true }
+          - db_type: pg_catalog.timestamptz
+            go_type: { import: time, type: Time }
+          - db_type: pg_catalog.timestamptz
+            nullable: true
+            go_type: { import: time, type: Time, pointer: true }
+          - db_type: citext
+            go_type: { type: string }
+          - db_type: citext
+            nullable: true
+            go_type: { type: string, pointer: true }
+          - db_type: inet
+            go_type: { import: net/netip, type: Addr }
+          - db_type: inet
+            nullable: true
+            go_type: { import: net/netip, type: Addr, pointer: true }
