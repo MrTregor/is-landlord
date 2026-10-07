@@ -6,16 +6,63 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 type Querier interface {
+	AcceptPolicy(ctx context.Context, arg AcceptPolicyParams) error
+	ActivateUser(ctx context.Context, arg ActivateUserParams) (User, error)
+	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
+	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
+	CountAudit(ctx context.Context, arg CountAuditParams) (int64, error)
+	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
+	CreateAuthToken(ctx context.Context, arg CreateAuthTokenParams) (uuid.UUID, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) (uuid.UUID, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
+	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
+	FailedAttemptsByIP(ctx context.Context, arg FailedAttemptsByIPParams) (int32, error)
+	GetAuthToken(ctx context.Context, arg GetAuthTokenParams) (GetAuthTokenRow, error)
 	// Служебные запросы.
 	// Сдвиг даты системы в демонстрационном режиме (03 Архитектура, «Время и часовой пояс»).
 	GetDemoClockOffset(ctx context.Context) (int64, error)
+	GetEmailLog(ctx context.Context, id uuid.UUID) (EmailLog, error)
+	// Письма (FR-10).
+	GetEmailTemplate(ctx context.Context, code string) (EmailTemplate, error)
+	// Настройки организации (FR-14.1).
+	GetOrganizationSettings(ctx context.Context) (OrganizationSetting, error)
 	// Краткое наименование организации для страницы входа (GET /public/app-info).
 	GetOrganizationShortName(ctx context.Context) (string, error)
+	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
+	// Пользователи (FR-14.1).
+	GetUserByEmail(ctx context.Context, email string) (User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Журнал действий (FR-12, NFR-Sec-04).
+	InsertAudit(ctx context.Context, arg InsertAuditParams) (int64, error)
+	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
+	// Вход, сессии, токены (NFR-Sec-01).
+	InsertLoginAttempt(ctx context.Context, arg InsertLoginAttemptParams) error
+	InvalidateAuthTokens(ctx context.Context, arg InvalidateAuthTokensParams) error
 	// Последний запуск плановой задачи.
 	LastJobRun(ctx context.Context, jobName string) (JobRun, error)
+	ListActiveOwners(ctx context.Context) ([]User, error)
+	ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error)
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
+	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
+	RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) error
+	RecordLoginSuccess(ctx context.Context, arg RecordLoginSuccessParams) error
+	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
+	// Отзыв всех сессий пользователя, кроме указанной (NULL — всех).
+	RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error
+	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
+	// Пересчёт хеша с новыми параметрами argon2id при входе.
+	SetUserPasswordHash(ctx context.Context, arg SetUserPasswordHashParams) error
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
+	UpsertOrganizationSettings(ctx context.Context, arg UpsertOrganizationSettingsParams) (OrganizationSetting, error)
+	UseAuthToken(ctx context.Context, arg UseAuthTokenParams) error
 }
 
 var _ Querier = (*Queries)(nil)

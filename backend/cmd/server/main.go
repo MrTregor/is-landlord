@@ -12,8 +12,8 @@ import (
 	"time"
 	_ "time/tzdata" // база часовых поясов для образа distroless
 
+	"landlord/backend/internal/app"
 	"landlord/backend/internal/config"
-	httpserver "landlord/backend/internal/http"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/logging"
@@ -44,13 +44,11 @@ func run() error {
 	}
 	defer database.Close()
 
-	srv := httpserver.NewServer(httpserver.Deps{
-		Config:    cfg,
-		Log:       log,
-		Clock:     clock.NewReal(cfg.Location),
-		DB:        database,
-		Gotenberg: pdf.New(cfg.GotenbergURL),
-	})
+	a, err := app.New(cfg, log, clock.NewReal(cfg.Location), database, app.Options{})
+	if err != nil {
+		return err
+	}
+	srv := a.Server(pdf.New(cfg.GotenbergURL))
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           srv.Handler(),

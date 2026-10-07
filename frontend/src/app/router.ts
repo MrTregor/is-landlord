@@ -27,10 +27,6 @@ function cabinet(path: string, title: string, stage: string): RouteRecordRaw {
   return { path, component: PlannedPage, meta: { title, stage, layout: 'cabinet', access: 'tenant' } }
 }
 
-function publicPage(path: string, title: string, stage: string): RouteRecordRaw {
-  return { path, component: PlannedPage, meta: { title, stage, layout: 'auth', access: 'public' } }
-}
-
 export const routes: RouteRecordRaw[] = [
   // Общие экраны
   {
@@ -39,10 +35,26 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/auth/pages/LoginPage.vue'),
     meta: { title: 'Вход', layout: 'auth', access: 'public' },
   },
-  publicPage('/forgot-password', 'Восстановление пароля', 'M1'),
-  publicPage('/reset-password/:token', 'Новый пароль', 'M1'),
-  publicPage('/invite/:token', 'Приглашение', 'M1'),
-  publicPage('/privacy', 'Политика обработки персональных данных', 'M1'),
+  {
+    path: '/forgot-password',
+    component: () => import('@/modules/auth/pages/ForgotPasswordPage.vue'),
+    meta: { title: 'Восстановление пароля', layout: 'auth', access: 'public' },
+  },
+  {
+    path: '/reset-password/:token',
+    component: () => import('@/modules/auth/pages/ResetPasswordPage.vue'),
+    meta: { title: 'Новый пароль', layout: 'auth', access: 'public' },
+  },
+  {
+    path: '/invite/:token',
+    component: () => import('@/modules/auth/pages/InvitePage.vue'),
+    meta: { title: 'Приглашение', layout: 'auth', access: 'public' },
+  },
+  {
+    path: '/privacy',
+    component: () => import('@/modules/auth/pages/PrivacyPage.vue'),
+    meta: { title: 'Политика обработки персональных данных', layout: 'blank', access: 'public' },
+  },
 
   // Рабочее место собственника
   owner('/', 'Сводка', 'M12', 'dashboard'),
@@ -72,11 +84,19 @@ export const routes: RouteRecordRaw[] = [
   owner('/reports', 'Отчёты', 'M12', 'reports'),
   owner('/reports/:name', 'Отчёт', 'M12', 'reports'),
   owner('/fiscal-receipts', 'Чеки', 'M8', 'fiscal'),
-  owner('/audit', 'Журнал действий', 'M1', 'audit'),
+  {
+    path: '/audit',
+    component: () => import('@/modules/audit/pages/AuditPage.vue'),
+    meta: { title: 'Журнал действий', section: 'audit', layout: 'owner', access: 'owner' },
+  },
   owner('/email-log', 'Письма', 'M10', 'email'),
   owner('/settings/document-templates/:kind', 'Шаблон документа', 'M5', 'settings'),
   owner('/settings/email-templates/:code', 'Шаблон письма', 'M10', 'settings'),
-  owner('/settings/:tab?', 'Настройки', 'M1', 'settings'),
+  {
+    path: '/settings/:tab?',
+    component: () => import('@/modules/settings/pages/SettingsPage.vue'),
+    meta: { title: 'Настройки', section: 'settings', layout: 'owner', access: 'owner' },
+  },
 
   // Личный кабинет нанимателя
   cabinet('/cabinet', 'Главная', 'M7'),

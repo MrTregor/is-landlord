@@ -1,0 +1,48 @@
+// Действия и сущности журнала (12 Безопасность и ПДн, раздел 7) — для фильтров экрана журнала.
+
+const actions: Record<string, string> = {
+  'auth.login': 'Вход',
+  'auth.logout': 'Выход',
+  'auth.locked': 'Блокировка входа',
+  'auth.password_changed': 'Смена пароля',
+  'auth.password_reset': 'Восстановление пароля',
+  'user.create': 'Создание пользователя',
+  'user.update': 'Изменение пользователя',
+  'user.block': 'Блокировка пользователя',
+  'user.invite': 'Приглашение пользователя',
+  'settings.update': 'Изменение настроек',
+  'tariff.create': 'Добавление тарифа',
+  'tariff.delete': 'Удаление тарифа',
+  'template.update': 'Изменение шаблона документа',
+  'template.reset': 'Сброс шаблона документа',
+  'email_template.update': 'Изменение шаблона письма',
+  'property.create': 'Создание объекта',
+  'property.update': 'Изменение объекта',
+  'property.status': 'Смена статуса объекта',
+  'property.archive': 'Архивирование объекта',
+  'tenant.create': 'Создание нанимателя',
+  'tenant.update': 'Изменение нанимателя',
+  'tenant.pdn_view': 'Просмотр паспортных данных',
+  'tenant.anonymize': 'Обезличивание нанимателя',
+  'contract.create': 'Создание договора',
+  'contract.activate': 'Ввод договора в действие',
+  'contract.terminate': 'Расторжение договора',
+  'charge.create': 'Создание начисления',
+  'charge.adjust': 'Корректировка начисления',
+  'charge.cancel': 'Отмена начисления',
+  'payment.create': 'Регистрация платежа',
+  'payment.cancel': 'Отмена платежа',
+  'deposit.withhold': 'Удержание из залога',
+}
+
+export const actionOptions = Object.entries(actions).map(([value, label]) => ({ value, label }))
+
+export const entityTypeOptions = [
+  { value: 'user', label: 'Пользователь' },
+  { value: 'settings', label: 'Настройки' },
+  { value: 'property', label: 'Объект' },
+  { value: 'tenant', label: 'Наниматель' },
+  { value: 'contract', label: 'Договор' },
+  { value: 'charge', label: 'Начисление' },
+  { value: 'payment', label: 'Платёж' },
+]

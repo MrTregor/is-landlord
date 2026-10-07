@@ -5,8 +5,11 @@ import { useRoute } from 'vue-router'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import CabinetLayout from '@/layouts/CabinetLayout.vue'
 import OwnerLayout from '@/layouts/OwnerLayout.vue'
+import PolicyDialog from '@/components/PolicyDialog.vue'
+import { useSessionStore } from '@/app/session'
 
 const route = useRoute()
+const session = useSessionStore()
 const layout = computed(() => {
   switch (route.meta.layout) {
     case 'auth':
@@ -26,6 +29,7 @@ const layout = computed(() => {
     <RouterView />
   </component>
   <RouterView v-else />
+  <PolicyDialog v-if="session.mustAcceptPolicy && route.meta.layout === 'cabinet'" />
   <Toast />
   <ConfirmDialog />
 </template>

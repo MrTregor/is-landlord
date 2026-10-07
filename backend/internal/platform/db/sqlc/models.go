@@ -6,6 +6,7 @@ package sqlc
 
 import (
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -16,7 +17,7 @@ import (
 // Неизменяемый журнал действий с цепочкой хешей SHA-256 (FR-12, NFR-Sec-04)
 type AuditLog struct {
 	ID          int64
-	OccurredAt  pgtype.Timestamptz
+	OccurredAt  time.Time
 	ActorUserID *uuid.UUID
 	ActorRole   string
 	// Код действия (contract.activate и т.п.)
@@ -42,9 +43,9 @@ type AuthToken struct {
 	UserID    uuid.UUID
 	Purpose   string
 	TokenHash []byte
-	ExpiresAt pgtype.Timestamptz
-	UsedAt    pgtype.Timestamptz
-	CreatedAt pgtype.Timestamptz
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	CreatedAt time.Time
 }
 
 // Загруженные выписки банка (FR-07.2)
@@ -61,7 +62,7 @@ type BankStatement struct {
 	LinesUnmatched int32
 	LinesDuplicate int32
 	UploadedBy     *uuid.UUID
-	UploadedAt     pgtype.Timestamptz
+	UploadedAt     time.Time
 }
 
 // Строки выписок банка
@@ -100,11 +101,11 @@ type CalendarEvent struct {
 	// Ключ автособытия (contract_end:<id> и т.п.)
 	AutoKey   *string
 	Done      bool
-	DoneAt    pgtype.Timestamptz
+	DoneAt    *time.Time
 	Notes     *string
 	CreatedBy *uuid.UUID
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Начисления: плата, ЖКУ, пени, возмещение ущерба, прочее (FR-05)
@@ -133,11 +134,11 @@ type Charge struct {
 	// Ключ автоначисления (rent:<договор>:ГГГГ-ММ и т.п.)
 	IdempotencyKey *string
 	CreatedBy      *uuid.UUID
-	CancelledAt    pgtype.Timestamptz
+	CancelledAt    *time.Time
 	CancelledBy    *uuid.UUID
 	CancelReason   *string
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Корректировки сумм начислений
@@ -148,7 +149,7 @@ type ChargeAdjustment struct {
 	DeltaKop  int64
 	Reason    string
 	CreatedBy *uuid.UUID
-	CreatedAt pgtype.Timestamptz
+	CreatedAt time.Time
 }
 
 // Договоры найма (гл. 35 ГК РФ) и аренды (гл. 34 ГК РФ) (FR-03)
@@ -195,12 +196,12 @@ type Contract struct {
 	NextIndexationOn *date.Date
 	SpecialTerms     *string
 	Notes            *string
-	ActivatedAt      pgtype.Timestamptz
+	ActivatedAt      *time.Time
 	ActivatedBy      *uuid.UUID
-	ClosedAt         pgtype.Timestamptz
+	ClosedAt         *time.Time
 	CreatedBy        *uuid.UUID
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Акты приёма-передачи и возврата помещения (FR-03.4)
@@ -217,8 +218,8 @@ type ContractAct struct {
 	SignedOn       *date.Date
 	DocumentID     *uuid.UUID
 	CreatedBy      *uuid.UUID
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Дополнительные соглашения к договору
@@ -237,10 +238,10 @@ type ContractAmendment struct {
 	SignedOn             *date.Date
 	CancelReason         *string
 	AutoCreated          bool
-	AppliedAt            pgtype.Timestamptz
+	AppliedAt            *time.Time
 	CreatedBy            *uuid.UUID
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // Граждане, постоянно проживающие с нанимателем (ст. 677 ГК РФ)
@@ -250,7 +251,7 @@ type ContractOccupant struct {
 	FullName   string
 	BirthDate  *date.Date
 	Relation   *string
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 // Версии условий договора: плата, фиксированная часть ЖКУ, день оплаты
@@ -264,14 +265,14 @@ type ContractTerm struct {
 	UtilitiesFixedKop int64
 	PaymentDay        int16
 	AmendmentID       *uuid.UUID
-	CreatedAt         pgtype.Timestamptz
+	CreatedAt         time.Time
 }
 
 // Сдвиг системной даты в демонстрационном режиме (одна строка)
 type DemoClock struct {
 	ID            int16
 	OffsetSeconds int64
-	UpdatedAt     pgtype.Timestamptz
+	UpdatedAt     time.Time
 }
 
 // Операции с обеспечительным платежом (FR-05.2)
@@ -287,10 +288,10 @@ type DepositTransaction struct {
 	FromAdvance          bool
 	MaintenanceRequestID *uuid.UUID
 	ExpenseID            *uuid.UUID
-	CancelledAt          pgtype.Timestamptz
+	CancelledAt          *time.Time
 	CancelReason         *string
 	CreatedBy            *uuid.UUID
-	CreatedAt            pgtype.Timestamptz
+	CreatedAt            time.Time
 }
 
 // Расхождения: недоплата, переплата, неопознанный платёж (FR-07.3)
@@ -302,11 +303,11 @@ type Discrepancy struct {
 	PaymentID           *uuid.UUID
 	BankStatementLineID *uuid.UUID
 	AmountKop           int64
-	DetectedAt          pgtype.Timestamptz
+	DetectedAt          time.Time
 	Resolution          *string
 	ResolutionNote      *string
 	ResolvedBy          *uuid.UUID
-	ResolvedAt          pgtype.Timestamptz
+	ResolvedAt          *time.Time
 }
 
 // Сформированные документы (FR-04.2)
@@ -331,7 +332,7 @@ type Document struct {
 	// Документ, сформированный взамен этого
 	SupersededBy *uuid.UUID
 	CreatedBy    *uuid.UUID
-	CreatedAt    pgtype.Timestamptz
+	CreatedAt    time.Time
 }
 
 // Шаблоны документов по видам и версиям (FR-04.1)
@@ -344,7 +345,7 @@ type DocumentTemplate struct {
 	IsActive  bool
 	IsSystem  bool
 	CreatedBy *uuid.UUID
-	CreatedAt pgtype.Timestamptz
+	CreatedAt time.Time
 }
 
 // Журнал отправки писем (FR-10)
@@ -362,8 +363,8 @@ type EmailLog struct {
 	DedupeKey         string
 	RelatedEntityType *string
 	RelatedEntityID   *uuid.UUID
-	CreatedAt         pgtype.Timestamptz
-	SentAt            pgtype.Timestamptz
+	CreatedAt         time.Time
+	SentAt            *time.Time
 }
 
 // Шаблоны писем (FR-10.3)
@@ -375,7 +376,7 @@ type EmailTemplate struct {
 	BodyHtml  string
 	Enabled   bool
 	UpdatedBy *uuid.UUID
-	UpdatedAt pgtype.Timestamptz
+	UpdatedAt time.Time
 }
 
 // Затраты собственника по объектам (FR-05.6)
@@ -395,8 +396,8 @@ type Expense struct {
 	DepositTransactionID *uuid.UUID
 	ChargeID             *uuid.UUID
 	CreatedBy            *uuid.UUID
-	CreatedAt            pgtype.Timestamptz
-	UpdatedAt            pgtype.Timestamptz
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // Загруженные и сформированные файлы (фото, сканы, PDF, выписки); содержимое — в каталоге FILES_DIR
@@ -411,9 +412,9 @@ type File struct {
 	Sha256     []byte
 	Category   string
 	UploadedBy *uuid.UUID
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 	// Файл удалён с диска (очистка или обезличивание)
-	DeletedAt pgtype.Timestamptz
+	DeletedAt *time.Time
 }
 
 // Кассовые чеки 54-ФЗ и чеки НПД (FR-06.2)
@@ -431,7 +432,7 @@ type FiscalReceipt struct {
 	TotalKop                int64
 	FiscalReceiptNumber     *int32
 	ShiftNumber             *int32
-	ReceiptDatetime         pgtype.Timestamptz
+	ReceiptDatetime         *time.Time
 	FnNumber                *string
 	FiscalDocumentNumber    *int64
 	FiscalDocumentAttribute *int64
@@ -440,8 +441,8 @@ type FiscalReceipt struct {
 	ErrorCode               *string
 	ErrorText               *string
 	Attempts                int32
-	CreatedAt               pgtype.Timestamptz
-	UpdatedAt               pgtype.Timestamptz
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // История запусков плановых задач
@@ -450,8 +451,8 @@ type JobRun struct {
 	JobName      string
 	BusinessDate date.Date
 	Trigger      string
-	StartedAt    pgtype.Timestamptz
-	FinishedAt   pgtype.Timestamptz
+	StartedAt    time.Time
+	FinishedAt   *time.Time
 	Status       string
 	Stats        []byte
 	ErrorText    *string
@@ -463,7 +464,7 @@ type LoginAttempt struct {
 	Email   string
 	Ip      *netip.Addr
 	Success bool
-	At      pgtype.Timestamptz
+	At      time.Time
 }
 
 // Заявки на обслуживание (FR-08)
@@ -483,10 +484,10 @@ type MaintenanceRequest struct {
 	PlannedDate *date.Date
 	ResultNote  *string
 	TenantFault bool
-	DoneAt      pgtype.Timestamptz
-	ClosedAt    pgtype.Timestamptz
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	DoneAt      *time.Time
+	ClosedAt    *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Лента заявки: смены статуса и комментарии
@@ -498,7 +499,7 @@ type MaintenanceRequestEvent struct {
 	FromStatus *string
 	ToStatus   *string
 	Text       *string
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 // Фотографии к заявкам
@@ -518,9 +519,9 @@ type Meter struct {
 	// Дата следующей поверки
 	VerificationDue *date.Date
 	Note            *string
-	ArchivedAt      pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
+	ArchivedAt      *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Показания приборов учёта по месяцам (FR-05.5)
@@ -536,9 +537,9 @@ type MeterReading struct {
 	Source       string
 	Status       string
 	SubmittedBy  *uuid.UUID
-	SubmittedAt  pgtype.Timestamptz
+	SubmittedAt  time.Time
 	DecidedBy    *uuid.UUID
-	DecidedAt    pgtype.Timestamptz
+	DecidedAt    *time.Time
 	RejectReason *string
 }
 
@@ -584,7 +585,7 @@ type OrganizationSetting struct {
 	ReadingsAutoAccept        bool
 	OwnerDailyDigest          bool
 	IndexationDraftDaysBefore int16
-	UpdatedAt                 pgtype.Timestamptz
+	UpdatedAt                 time.Time
 	UpdatedBy                 *uuid.UUID
 }
 
@@ -605,7 +606,7 @@ type Payment struct {
 	ProviderPaymentID   *string
 	ProviderStatus      *string
 	PaymentUrl          *string
-	PaymentUrlExpiresAt pgtype.Timestamptz
+	PaymentUrlExpiresAt *time.Time
 	PayerName           *string
 	PayerInn            *string
 	PayerAccount        *string
@@ -615,9 +616,9 @@ type Payment struct {
 	ReceiptNumber *string
 	Comment       *string
 	CreatedBy     *uuid.UUID
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-	CancelledAt   pgtype.Timestamptz
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CancelledAt   *time.Time
 	CancelledBy   *uuid.UUID
 	CancelReason  *string
 }
@@ -628,8 +629,8 @@ type PaymentAllocation struct {
 	PaymentID      uuid.UUID
 	ChargeID       uuid.UUID
 	AmountKop      int64
-	AllocatedAt    pgtype.Timestamptz
-	ReversedAt     pgtype.Timestamptz
+	AllocatedAt    time.Time
+	ReversedAt     *time.Time
 	ReversedReason *string
 }
 
@@ -646,7 +647,7 @@ type PdnConsent struct {
 	Ip         *netip.Addr
 	RevokedOn  *date.Date
 	RevokeNote *string
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 // Объекты недвижимости (FR-01)
@@ -669,9 +670,9 @@ type Property struct {
 	FiscalMode string
 	// Текущий статус: free, reserved, rented, repair
 	Status     string
-	ArchivedAt pgtype.Timestamptz
-	CreatedAt  pgtype.Timestamptz
-	UpdatedAt  pgtype.Timestamptz
+	ArchivedAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // Опись имущества объекта (копируется в акт приёма-передачи)
@@ -704,7 +705,7 @@ type PropertyStatusHistory struct {
 	ContractID *uuid.UUID
 	Reason     *string
 	CreatedBy  *uuid.UUID
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 // Возвраты переплаты (аванса) по платежам
@@ -716,7 +717,7 @@ type Refund struct {
 	Method     string
 	Reason     string
 	CreatedBy  *uuid.UUID
-	CreatedAt  pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 // Сессии входа; значение cookie хранится как sha256
@@ -725,11 +726,11 @@ type Session struct {
 	UserID     uuid.UUID
 	TokenHash  []byte
 	CsrfToken  string
-	CreatedAt  pgtype.Timestamptz
-	LastSeenAt pgtype.Timestamptz
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 	// Абсолютный срок сессии
-	ExpiresAt pgtype.Timestamptz
-	RevokedAt pgtype.Timestamptz
+	ExpiresAt time.Time
+	RevokedAt *time.Time
 	Ip        *netip.Addr
 	UserAgent *string
 }
@@ -743,7 +744,7 @@ type Tariff struct {
 	EffectiveFrom date.Date
 	Note          *string
 	CreatedBy     *uuid.UUID
-	CreatedAt     pgtype.Timestamptz
+	CreatedAt     time.Time
 }
 
 // Наниматели (арендаторы): физические и юридические лица (FR-02)
@@ -777,9 +778,9 @@ type Tenant struct {
 	Email                  *string
 	Note                   *string
 	// Момент обезличивания (NFR-Sec-05)
-	AnonymizedAt pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
+	AnonymizedAt *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // Учётные записи собственников и нанимателей
@@ -794,14 +795,14 @@ type User struct {
 	TenantID          *uuid.UUID
 	DisplayName       string
 	FailedLoginCount  int32
-	LockedUntil       pgtype.Timestamptz
-	LastLoginAt       pgtype.Timestamptz
-	PasswordChangedAt pgtype.Timestamptz
+	LockedUntil       *time.Time
+	LastLoginAt       *time.Time
+	PasswordChangedAt *time.Time
 	// Версия политики обработки ПДн, с которой пользователь ознакомлен (не согласие)
 	PolicyAcceptedVersion *string
-	PolicyAcceptedAt      pgtype.Timestamptz
-	CreatedAt             pgtype.Timestamptz
-	UpdatedAt             pgtype.Timestamptz
+	PolicyAcceptedAt      *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // Входящие уведомления платёжного сервиса и кассы (идемпотентность, NFR-Rel-02)
@@ -810,8 +811,8 @@ type WebhookEvent struct {
 	Provider    string
 	EventKey    string
 	Payload     []byte
-	ReceivedAt  pgtype.Timestamptz
-	ProcessedAt pgtype.Timestamptz
+	ReceivedAt  time.Time
+	ProcessedAt *time.Time
 	Result      *string
 	ErrorText   *string
 }

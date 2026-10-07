@@ -53,5 +53,17 @@ export const useSessionStore = defineStore('session', () => {
     apply(null)
   }
 
-  return { user, role, isAuthenticated, mustAcceptPolicy, policyVersion, loaded, ensureLoaded, login, logout, reset }
+  return {
+    user,
+    role,
+    isAuthenticated,
+    mustAcceptPolicy,
+    policyVersion,
+    loaded,
+    ensureLoaded,
+    login,
+    logout,
+    reset,
+    setAuth: apply,
+  }
 })

@@ -198,3 +198,17 @@ export const paymentStatusSeverity: Record<S['PaymentStatus'], Severity> = {
   failed: 'danger',
   cancelled: 'secondary',
 }
+
+export const taxRegimeLabels: Record<S['TaxRegime'], string> = {
+  usn_income: 'УСН «доходы»',
+  usn_income_expense: 'УСН «доходы минус расходы»',
+  npd: 'НПД',
+  psn: 'Патент',
+  osn: 'ОСН',
+}
+
+export const auditActorRoleLabels: Record<S['AuditActorRole'], string> = {
+  owner: 'Собственник',
+  tenant: 'Наниматель',
+  system: 'Система',
+}

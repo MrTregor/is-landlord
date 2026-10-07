@@ -11,11 +11,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"landlord/backend/internal/api"
+	"landlord/backend/internal/audit"
+	"landlord/backend/internal/auth"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/logging"
+	"landlord/backend/internal/settings"
+	"landlord/backend/internal/user"
 )
 
 // BaseURL — базовый путь API.
@@ -38,25 +42,55 @@ type Deps struct {
 	Clock     clock.Clock
 	DB        *db.DB
 	Gotenberg HealthChecker
+	// Auth и Policy — проверка сессии и версии политики ПДн (nil в тестах без БД).
+	Auth    Authenticator
+	Policy  PolicyChecker
+	Modules Modules
+}
+
+// Modules — обработчики модулей; их методы перекрывают заглушки 501.
+type Modules struct {
+	Auth     *auth.Handler
+	Users    *user.Handler
+	Audit    *audit.Handler
+	Settings *settings.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
 // встроенные в Server напрямую, перекрывают их без конфликта имён.
 type unimplemented struct{ api.StrictUnimplemented }
 
+// Псевдонимы дают встроенным обработчикам модулей разные имена полей.
+type (
+	authHandler     = auth.Handler
+	userHandler     = user.Handler
+	auditHandler    = audit.Handler
+	settingsHandler = settings.Handler
+)
+
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
 type Server struct {
 	unimplemented
+	*authHandler
+	*userHandler
+	*auditHandler
+	*settingsHandler
 
 	deps     Deps
 	dbPinger Pinger
+	auth     Authenticator
+	policy   PolicyChecker
 }
 
 var _ api.StrictServerInterface = (*Server)(nil)
 
 // NewServer создаёт реализацию API.
 func NewServer(deps Deps) *Server {
-	s := &Server{deps: deps}
+	m := deps.Modules
+	s := &Server{
+		authHandler: m.Auth, userHandler: m.Users, auditHandler: m.Audit, settingsHandler: m.Settings,
+		deps: deps, auth: deps.Auth, policy: deps.Policy,
+	}
 	if deps.DB != nil {
 		s.dbPinger = deps.DB
 	}
@@ -67,7 +101,7 @@ func NewServer(deps Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	log := s.deps.Log
 	r := chi.NewRouter()
-	r.Use(RequestID, Logging(log, s.deps.Clock), Recover(log), SecurityHeaders, Timeout(60*time.Second))
+	r.Use(RequestID, Logging(log, s.deps.Clock), Recover(log), SecurityHeaders, Timeout(60*time.Second), s.Security)
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		s.writeError(w, req, apperr.NotFoundDetail("Адрес не найден"))
 	})

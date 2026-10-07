@@ -10,10 +10,13 @@ import (
 	"time"
 	_ "time/tzdata" // база часовых поясов для образа distroless
 
+	"landlord/backend/internal/app"
 	"landlord/backend/internal/config"
+	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/logging"
+	"landlord/backend/internal/platform/mailer"
 )
 
 func main() {
@@ -40,8 +43,11 @@ func run() error {
 	}
 	defer database.Close()
 
-	// Воркеры задач регистрируются модулями на следующих этапах (M1+).
-	reg := jobs.NewRegistry()
+	a, err := app.New(cfg, log, clock.NewReal(cfg.Location), database, app.Options{})
+	if err != nil {
+		return err
+	}
+	reg := a.Workers(mailer.NewSMTP(cfg))
 	if reg.Len() == 0 {
 		log.Info("worker запущен: зарегистрированных задач пока нет, ожидание остановки")
 		<-ctx.Done()

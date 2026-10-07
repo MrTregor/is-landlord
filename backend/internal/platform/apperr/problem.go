@@ -43,7 +43,6 @@ func Write(w http.ResponseWriter, r *http.Request, err error, requestID string, 
 	e := From(err)
 	if e.Status >= http.StatusInternalServerError && e.Code != CodeNotImplemented && log != nil {
 		log.ErrorContext(r.Context(), "ошибка обработки запроса",
-			slog.String("request_id", requestID),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("error", err.Error()))

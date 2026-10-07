@@ -20,6 +20,7 @@ linters:
     errcheck:
       exclude-functions:
         - fmt.Fprintf
+        - fmt.Fprint
         - fmt.Fprintln
         - (*database/sql.DB).Close
         - (io.ReadCloser).Close
@@ -34,6 +35,7 @@ linters:
     gosec:
       excludes:
         - G104 # необработанные ошибки — проверяет errcheck
+        - G101 # ложные срабатывания на русские тексты со словом «пароль» и коды ошибок
   exclusions:
     generated: strict
     paths:

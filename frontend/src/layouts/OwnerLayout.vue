@@ -10,6 +10,7 @@ import { useDashboard } from '@/api/queries/dashboard'
 import { APP_NAME } from '@/app/constants'
 import { useSessionStore } from '@/app/session'
 import { formatDate } from '@/utils/date'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { ownerMenu } from './ownerMenu'
 
 const COLLAPSED_KEY = 'landlord.menuCollapsed'
@@ -210,9 +211,7 @@ async function logout() {
           @click="userMenu?.toggle($event)"
         />
         <Menu id="user-menu" ref="userMenu" :model="userMenuItems" popup />
-        <Dialog v-model:visible="passwordDialog" modal header="Смена пароля" :style="{ width: '480px' }">
-          <Message severity="info" :closable="false">Смена пароля будет доступна после этапа M1.</Message>
-        </Dialog>
+        <ChangePasswordDialog v-model:visible="passwordDialog" />
       </header>
       <main class="owner__content">
         <slot />

@@ -14,7 +14,7 @@ import (
 const (
 	CodeBadRequest          = "bad_request"
 	CodeUnauthorized        = "unauthorized"
-	CodeInvalidCredentials  = "invalid_credentials" //nolint:gosec // код ошибки, не учётные данные
+	CodeInvalidCredentials  = "invalid_credentials"
 	CodeForbidden           = "forbidden"
 	CodeCSRFFailed          = "csrf_failed"
 	CodeNotFound            = "not_found"
@@ -170,4 +170,11 @@ func From(err error) *Error {
 func Is(err error, code string) bool {
 	var e *Error
 	return errors.As(err, &e) && e.Code == code
+}
+
+// WithDetail — та же ошибка с другим текстом для пользователя.
+func (e *Error) WithDetail(detail string) *Error {
+	c := *e
+	c.Detail = detail
+	return &c
 }

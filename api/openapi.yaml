@@ -3831,7 +3831,7 @@ components:
         ogrnip: { type: [string, "null"], pattern: '^\d{15}$' }
         address: { type: string, minLength: 1, maxLength: 300 }
         phone: { type: [string, "null"], maxLength: 40 }
-        email: { type: string, format: email, maxLength: 254 }
+        email: { type: string, format: email, maxLength: 254, x-go-type: string }
         bankName: { type: [string, "null"], maxLength: 200 }
         bankBik: { type: [string, "null"], pattern: '^\d{9}$' }
         bankAccount: { type: [string, "null"], pattern: '^\d{20}$' }

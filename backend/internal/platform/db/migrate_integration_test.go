@@ -78,6 +78,9 @@ func TestMigrateUpDownUp_NFR_Maint_02(t *testing.T) {
 	assert.ErrorContains(t, err, "Журнал действий не может быть изменён")
 	conn.Close(ctx)
 
+	// Откат по одной миграции: после последней схема пуста, таблицы River тоже удалены.
+	require.NoError(t, m.Down(ctx))
+	assert.Equal(t, 4, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
 	require.NoError(t, m.Down(ctx))
 	assert.Equal(t, 0, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
 

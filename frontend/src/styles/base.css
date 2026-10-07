@@ -22,3 +22,40 @@ a {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* Формы: подпись над полем, ошибка под полем, кнопки справа. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem 1.5rem;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.field--wide {
+  grid-column: 1 / -1;
+}
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+.error {
+  color: var(--p-red-500);
+}
+.hint {
+  color: var(--p-text-muted-color);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
