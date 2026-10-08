@@ -14,11 +14,15 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
 	"landlord/backend/internal/config"
+	"landlord/backend/internal/file"
+	"landlord/backend/internal/meter"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/logging"
+	"landlord/backend/internal/property"
 	"landlord/backend/internal/settings"
+	"landlord/backend/internal/tenant"
 	"landlord/backend/internal/user"
 )
 
@@ -54,6 +58,10 @@ type Modules struct {
 	Users    *user.Handler
 	Audit    *audit.Handler
 	Settings *settings.Handler
+	Files    *file.Handler
+	Property *property.Handler
+	Meters   *meter.Handler
+	Tenants  *tenant.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
@@ -66,6 +74,10 @@ type (
 	userHandler     = user.Handler
 	auditHandler    = audit.Handler
 	settingsHandler = settings.Handler
+	fileHandler     = file.Handler
+	propertyHandler = property.Handler
+	meterHandler    = meter.Handler
+	tenantHandler   = tenant.Handler
 )
 
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
@@ -75,6 +87,10 @@ type Server struct {
 	*userHandler
 	*auditHandler
 	*settingsHandler
+	*fileHandler
+	*propertyHandler
+	*meterHandler
+	*tenantHandler
 
 	deps     Deps
 	dbPinger Pinger
@@ -89,6 +105,7 @@ func NewServer(deps Deps) *Server {
 	m := deps.Modules
 	s := &Server{
 		authHandler: m.Auth, userHandler: m.Users, auditHandler: m.Audit, settingsHandler: m.Settings,
+		fileHandler: m.Files, propertyHandler: m.Property, meterHandler: m.Meters, tenantHandler: m.Tenants,
 		deps: deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {
@@ -101,7 +118,11 @@ func NewServer(deps Deps) *Server {
 func (s *Server) Handler() http.Handler {
 	log := s.deps.Log
 	r := chi.NewRouter()
-	r.Use(RequestID, Logging(log, s.deps.Clock), Recover(log), SecurityHeaders, Timeout(60*time.Second), s.Security)
+	validate, err := s.OpenAPIValidator()
+	if err != nil {
+		panic("спецификация API: " + err.Error()) // встроенная спецификация проверяется тестом
+	}
+	r.Use(RequestID, Logging(log, s.deps.Clock), Recover(log), SecurityHeaders, Timeout(60*time.Second), s.Security, validate)
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		s.writeError(w, req, apperr.NotFoundDetail("Адрес не найден"))
 	})

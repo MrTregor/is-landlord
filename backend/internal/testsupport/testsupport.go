@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -115,6 +116,7 @@ func NewEnv(t *testing.T, today string) *Env {
 	cfg := &config.Config{
 		AppEnv: config.EnvDev, AppName: "Наймодатель", AppPublicURL: "http://localhost:5173",
 		SessionIdleHours: 8, SessionAbsoluteDays: 30, CookieSecure: false, Location: Moscow(),
+		FilesDir: t.TempDir(), MaxUploadMB: 10, PDNKey: bytes.Repeat([]byte{42}, 32),
 	}
 	database, err := db.Open(ctx, AppURL)
 	if err != nil {
@@ -282,4 +284,47 @@ type tWriter struct{ t *testing.T }
 func (w tWriter) Write(p []byte) (int, error) {
 	w.t.Log(strings.TrimRight(string(p), "\n"))
 	return len(p), nil
+}
+
+// Upload — загрузка файла POST /files (multipart: file, category).
+func (c *Client) Upload(category, name string, data []byte) Response {
+	c.t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	_ = w.WriteField("category", category)
+	fw, err := w.CreateFormFile("file", name)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	_, _ = fw.Write(data)
+	_ = w.Close()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, c.base+"/files", &body)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("X-CSRF-Token", c.CSRF)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return Response{Status: resp.StatusCode, Body: b, Header: resp.Header}
+}
+
+// PNG — минимальное изображение PNG для тестов.
+var PNG = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 64)...)
+
+// ID — поле id из ответа.
+func (r Response) ID(t *testing.T) string {
+	t.Helper()
+	var v struct {
+		ID string `json:"id"`
+	}
+	r.JSON(t, &v)
+	if v.ID == "" {
+		t.Fatalf("в ответе %d нет id: %s", r.Status, r.Body)
+	}
+	return v.ID
 }

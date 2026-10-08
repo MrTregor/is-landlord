@@ -13,54 +13,117 @@ import (
 type Querier interface {
 	AcceptPolicy(ctx context.Context, arg AcceptPolicyParams) error
 	ActivateUser(ctx context.Context, arg ActivateUserParams) (User, error)
+	AddPropertyPhoto(ctx context.Context, arg AddPropertyPhotoParams) (PropertyPhoto, error)
+	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
+	CloseStatusHistory(ctx context.Context, arg CloseStatusHistoryParams) error
 	CountAudit(ctx context.Context, arg CountAuditParams) (int64, error)
+	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
+	CountProperties(ctx context.Context, arg CountPropertiesParams) (int64, error)
+	CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateAuthToken(ctx context.Context, arg CreateAuthTokenParams) (uuid.UUID, error)
+	CreateMeter(ctx context.Context, arg CreateMeterParams) (Meter, error)
+	// Объекты (FR-01).
+	CreateProperty(ctx context.Context, arg CreatePropertyParams) (Property, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (uuid.UUID, error)
+	CreateTariff(ctx context.Context, arg CreateTariffParams) (Tariff, error)
+	// Наниматели и согласия (FR-02).
+	CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Текущие договоры объектов (действует на дату): номер, наниматель, срок.
+	CurrentContracts(ctx context.Context, arg CurrentContractsParams) ([]CurrentContractsRow, error)
+	CurrentStatusRow(ctx context.Context, propertyID uuid.UUID) (PropertyStatusHistory, error)
+	DeleteAutoEvent(ctx context.Context, autoKey *string) error
+	DeleteInventory(ctx context.Context, propertyID uuid.UUID) error
+	DeletePropertyPhoto(ctx context.Context, arg DeletePropertyPhotoParams) (int64, error)
+	DeleteTariff(ctx context.Context, id uuid.UUID) error
 	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
 	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
 	FailedAttemptsByIP(ctx context.Context, arg FailedAttemptsByIPParams) (int32, error)
 	GetAuthToken(ctx context.Context, arg GetAuthTokenParams) (GetAuthTokenRow, error)
+	GetConsent(ctx context.Context, arg GetConsentParams) (PdnConsent, error)
 	// Служебные запросы.
 	// Сдвиг даты системы в демонстрационном режиме (03 Архитектура, «Время и часовой пояс»).
 	GetDemoClockOffset(ctx context.Context) (int64, error)
 	GetEmailLog(ctx context.Context, id uuid.UUID) (EmailLog, error)
 	// Письма (FR-10).
 	GetEmailTemplate(ctx context.Context, code string) (EmailTemplate, error)
+	GetFile(ctx context.Context, id uuid.UUID) (File, error)
+	GetMeter(ctx context.Context, id uuid.UUID) (Meter, error)
 	// Настройки организации (FR-14.1).
 	GetOrganizationSettings(ctx context.Context) (OrganizationSetting, error)
 	// Краткое наименование организации для страницы входа (GET /public/app-info).
 	GetOrganizationShortName(ctx context.Context) (string, error)
+	GetProperty(ctx context.Context, id uuid.UUID) (Property, error)
+	GetPropertyForUpdate(ctx context.Context, id uuid.UUID) (Property, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
+	GetTariff(ctx context.Context, id uuid.UUID) (Tariff, error)
+	GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error)
+	GetTenantForUpdate(ctx context.Context, id uuid.UUID) (Tenant, error)
 	// Пользователи (FR-14.1).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	GetUserByTenantID(ctx context.Context, tenantID *uuid.UUID) (User, error)
+	// Есть ли на дату действующий (не черновой и не завершённый раньше) договор по объекту.
+	HasActiveContractOn(ctx context.Context, arg HasActiveContractOnParams) (bool, error)
 	// Журнал действий (FR-12, NFR-Sec-04).
 	InsertAudit(ctx context.Context, arg InsertAuditParams) (int64, error)
+	InsertConsent(ctx context.Context, arg InsertConsentParams) (PdnConsent, error)
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
+	// Файлы (06 API, раздел 6).
+	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
+	InsertInventoryItem(ctx context.Context, arg InsertInventoryItemParams) (PropertyInventoryItem, error)
 	// Вход, сессии, токены (NFR-Sec-01).
 	InsertLoginAttempt(ctx context.Context, arg InsertLoginAttemptParams) error
+	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InvalidateAuthTokens(ctx context.Context, arg InvalidateAuthTokensParams) error
+	// Последнее принятое показание счётчика.
+	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
 	// Последний запуск плановой задачи.
 	LastJobRun(ctx context.Context, jobName string) (JobRun, error)
 	ListActiveOwners(ctx context.Context) ([]User, error)
 	ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error)
+	ListConsents(ctx context.Context, tenantID uuid.UUID) ([]PdnConsent, error)
+	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
+	// Счётчики и тарифы (FR-01.1, FR-05.5).
+	ListMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
+	ListProperties(ctx context.Context, arg ListPropertiesParams) ([]Property, error)
+	ListPropertyPhotos(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyPhotosRow, error)
+	ListStatusHistory(ctx context.Context, propertyID uuid.UUID) ([]ListStatusHistoryRow, error)
+	ListTariffs(ctx context.Context, arg ListTariffsParams) ([]ListTariffsRow, error)
+	ListTenantContracts(ctx context.Context, tenantID uuid.UUID) ([]ListTenantContractsRow, error)
+	ListTenants(ctx context.Context, arg ListTenantsParams) ([]ListTenantsRow, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
+	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
 	RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) error
 	RecordLoginSuccess(ctx context.Context, arg RecordLoginSuccessParams) error
+	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	RevokeConsent(ctx context.Context, arg RevokeConsentParams) (PdnConsent, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	// Отзыв всех сессий пользователя, кроме указанной (NULL — всех).
 	RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error
+	SetPropertyArchived(ctx context.Context, arg SetPropertyArchivedParams) (Property, error)
+	SetPropertyPhotoSort(ctx context.Context, arg SetPropertyPhotoSortParams) error
+	SetPropertyStatus(ctx context.Context, arg SetPropertyStatusParams) error
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
 	// Пересчёт хеша с новыми параметрами argon2id при входе.
 	SetUserPasswordHash(ctx context.Context, arg SetUserPasswordHashParams) error
+	// Есть ли неотменённое начисление ЖКУ с месяцем не раньше даты тарифа по объекту, к которому тариф применим.
+	TariffInUse(ctx context.Context, arg TariffInUseParams) (bool, error)
+	// Наниматель видит свои загрузки, фото своих заявок, видимые документы своих договоров (и свои согласия)
+	// и фото объектов своих договоров (12 Безопасность и ПДн, раздел 3).
+	TenantCanReadFile(ctx context.Context, arg TenantCanReadFileParams) (bool, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UpdateMeter(ctx context.Context, arg UpdateMeterParams) (Meter, error)
+	UpdateProperty(ctx context.Context, arg UpdatePropertyParams) (Property, error)
+	UpdateTenant(ctx context.Context, arg UpdateTenantParams) (Tenant, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
+	// Автоматическое событие календаря (05 разд. 13.1); повтор по тому же ключу обновляет дату и название.
+	UpsertAutoEvent(ctx context.Context, arg UpsertAutoEventParams) error
 	UpsertOrganizationSettings(ctx context.Context, arg UpsertOrganizationSettingsParams) (OrganizationSetting, error)
 	UseAuthToken(ctx context.Context, arg UseAuthTokenParams) error
 }

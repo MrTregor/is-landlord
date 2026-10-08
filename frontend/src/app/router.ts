@@ -23,6 +23,10 @@ function owner(path: string, title: string, stage: string, section: string): Rou
   return { path, component: PlannedPage, meta: { title, stage, section, layout: 'owner', access: 'owner' } }
 }
 
+function page(path: string, title: string, section: string, component: RouteRecordRaw['component']): RouteRecordRaw {
+  return { path, component, meta: { title, section, layout: 'owner', access: 'owner' } } as RouteRecordRaw
+}
+
 function cabinet(path: string, title: string, stage: string): RouteRecordRaw {
   return { path, component: PlannedPage, meta: { title, stage, layout: 'cabinet', access: 'tenant' } }
 }
@@ -58,14 +62,29 @@ export const routes: RouteRecordRaw[] = [
 
   // Рабочее место собственника
   owner('/', 'Сводка', 'M12', 'dashboard'),
-  owner('/properties', 'Объекты', 'M2', 'properties'),
-  owner('/properties/new', 'Новый объект', 'M2', 'properties'),
-  owner('/properties/:id', 'Объект', 'M2', 'properties'),
-  owner('/properties/:id/edit', 'Изменение объекта', 'M2', 'properties'),
-  owner('/tenants', 'Наниматели', 'M2', 'tenants'),
-  owner('/tenants/new', 'Новый наниматель', 'M2', 'tenants'),
-  owner('/tenants/:id', 'Наниматель', 'M2', 'tenants'),
-  owner('/tenants/:id/edit', 'Изменение нанимателя', 'M2', 'tenants'),
+  page('/properties', 'Объекты', 'properties', () => import('@/modules/properties/pages/PropertiesListPage.vue')),
+  page(
+    '/properties/new',
+    'Новый объект',
+    'properties',
+    () => import('@/modules/properties/pages/PropertyFormPage.vue'),
+  ),
+  page('/properties/:id', 'Объект', 'properties', () => import('@/modules/properties/pages/PropertyCardPage.vue')),
+  page(
+    '/properties/:id/edit',
+    'Изменение объекта',
+    'properties',
+    () => import('@/modules/properties/pages/PropertyFormPage.vue'),
+  ),
+  page('/tenants', 'Наниматели', 'tenants', () => import('@/modules/tenants/pages/TenantsListPage.vue')),
+  page('/tenants/new', 'Новый наниматель', 'tenants', () => import('@/modules/tenants/pages/TenantFormPage.vue')),
+  page('/tenants/:id', 'Наниматель', 'tenants', () => import('@/modules/tenants/pages/TenantCardPage.vue')),
+  page(
+    '/tenants/:id/edit',
+    'Изменение нанимателя',
+    'tenants',
+    () => import('@/modules/tenants/pages/TenantFormPage.vue'),
+  ),
   owner('/contracts', 'Договоры', 'M3', 'contracts'),
   owner('/contracts/new', 'Новый договор', 'M3', 'contracts'),
   owner('/contracts/:id', 'Договор', 'M3', 'contracts'),

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import OrganizationTab from '../components/OrganizationTab.vue'
 import PdnTab from '../components/PdnTab.vue'
+import TariffsTab from '../components/TariffsTab.vue'
 import TaxesTab from '../components/TaxesTab.vue'
 import UsersTab from '../components/UsersTab.vue'
 
@@ -14,7 +15,7 @@ const tabs = [
   { value: 'notifications', label: 'Уведомления и сроки', stage: 'M10' },
   { value: 'email-templates', label: 'Шаблоны писем', stage: 'M10' },
   { value: 'document-templates', label: 'Шаблоны документов', stage: 'M5' },
-  { value: 'tariffs', label: 'Тарифы', stage: 'M2' },
+  { value: 'tariffs', label: 'Тарифы', component: TariffsTab },
   { value: 'users', label: 'Пользователи', component: UsersTab },
   { value: 'pdn', label: 'ПДн', component: PdnTab },
   { value: 'service', label: 'Служебное', stage: 'M4' },

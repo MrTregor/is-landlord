@@ -3305,6 +3305,7 @@ export interface components {
         };
         ChangePasswordRequest: {
             currentPassword: string;
+            /** @description Не короче 10 символов, буквы и цифры (проверяет сервер) */
             newPassword: string;
         };
         ForgotPasswordRequest: {
@@ -3313,6 +3314,7 @@ export interface components {
         };
         ResetPasswordRequest: {
             token: string;
+            /** @description Не короче 10 символов, буквы и цифры (проверяет сервер) */
             newPassword: string;
         };
         InviteInfo: {
@@ -3322,6 +3324,7 @@ export interface components {
         };
         AcceptInviteRequest: {
             token: string;
+            /** @description Не короче 10 символов, буквы и цифры (проверяет сервер) */
             password: string;
             /** @description Версия политики, с которой ознакомился наниматель (для нанимателя обязательна). */
             acceptPolicyVersion?: string | null;

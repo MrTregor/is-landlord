@@ -13,6 +13,11 @@ export function setCsrfToken(token: string | null): void {
   csrfToken = token
 }
 
+/** Текущий CSRF-токен (для запросов, собираемых вручную, например multipart). */
+export function getCsrfToken(): string | null {
+  return csrfToken
+}
+
 /** Что делать при 401 вне методов входа (например, перейти на страницу входа). */
 export function setUnauthorizedHandler(handler: () => void): void {
   onUnauthorized = handler

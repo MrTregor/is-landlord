@@ -10,14 +10,18 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
 	"landlord/backend/internal/config"
+	"landlord/backend/internal/file"
 	httpserver "landlord/backend/internal/http"
+	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/crypto"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/mailer"
+	"landlord/backend/internal/property"
 	"landlord/backend/internal/settings"
+	"landlord/backend/internal/tenant"
 	"landlord/backend/internal/user"
 )
 
@@ -33,6 +37,10 @@ type App struct {
 	Settings *settings.Service
 	Auth     *auth.Service
 	Users    *user.Service
+	Files    *file.Service
+	Property *property.Service
+	Meters   *meter.Service
+	Tenants  *tenant.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -57,6 +65,14 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Settings = settings.NewService(database, a.Audit, clk)
 	a.Auth = auth.NewService(database, cfg, clk, a.Audit, a.Notify, a.Settings, argon)
 	a.Users = user.NewService(database, clk, a.Audit, a.Auth)
+	a.Files = file.NewService(database, cfg, clk)
+	a.Property = property.NewService(database, a.Audit, clk, a.Files)
+	a.Meters = meter.NewService(database, a.Audit, clk)
+	cipher, err := crypto.NewCipher(cfg.PDNKey)
+	if err != nil {
+		return nil, err
+	}
+	a.Tenants = tenant.NewService(database, a.Audit, clk, cipher, a.Auth, a.Settings, a.Files)
 	return a, nil
 }
 
@@ -70,6 +86,10 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Users:    user.NewHandler(a.Users),
 			Audit:    audit.NewHandler(a.Audit, a.Clock),
 			Settings: settings.NewHandler(a.Settings),
+			Files:    file.NewHandler(a.Files),
+			Property: property.NewHandler(a.Property),
+			Meters:   meter.NewHandler(a.Meters),
+			Tenants:  tenant.NewHandler(a.Tenants),
 		},
 	})
 }

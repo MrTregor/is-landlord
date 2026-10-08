@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,7 +104,7 @@ func TestReadyz(t *testing.T) {
 // Заглушки этапа M0: каждый описанный в API метод отвечает 501 в формате problem+json.
 func TestStubsReturnNotImplemented(t *testing.T) {
 	h := newTestServer(nil, nil).Handler()
-	for _, path := range []string{"/api/v1/properties", "/api/v1/dashboard", "/api/v1/cabinet/summary"} {
+	for _, path := range []string{"/api/v1/charges", "/api/v1/dashboard", "/api/v1/cabinet/summary"} {
 		rec := doAs(t, h, http.MethodGet, path, sessionFor(path), "")
 		assert.Equal(t, http.StatusNotImplemented, rec.Code, path)
 		assert.Equal(t, "application/problem+json; charset=utf-8", rec.Header().Get("Content-Type"))
@@ -201,4 +202,29 @@ func TestClientIP(t *testing.T) {
 	assert.Equal(t, "10.0.0.5", clientIP(r).String())
 	r.Header.Set("X-Forwarded-For", "1.1.1.1, 203.0.113.7")
 	assert.Equal(t, "203.0.113.7", clientIP(r).String())
+}
+
+// Тело и параметры запроса проверяются по OpenAPI: недопустимое значение — 400 bad_request с полем.
+func TestOpenAPIValidation_NFR_Comp_02(t *testing.T) {
+	h := newTestServer(nil, nil).Handler()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/charges?status=неизвестный", nil)
+	req.AddCookie(&http.Cookie{Name: "ll_session", Value: "owner"})
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var p apperr.Problem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+	assert.Equal(t, apperr.CodeBadRequest, p.Code)
+	assert.Contains(t, p.Detail, "status")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/properties/0199f1b2-7c3e-7a10-9d4e-3f5a6b7c8d90/status",
+		strings.NewReader(`{"status":"rented","since":"2026-10-16"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "csrf")
+	req.AddCookie(&http.Cookie{Name: "ll_session", Value: "owner"})
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+	assert.Equal(t, "Недопустимое значение поля «status»", p.Detail)
 }

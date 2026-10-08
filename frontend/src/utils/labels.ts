@@ -212,3 +212,42 @@ export const auditActorRoleLabels: Record<S['AuditActorRole'], string> = {
   tenant: 'Наниматель',
   system: 'Система',
 }
+
+export const docTypeLabels: Record<S['DocType'], string> = {
+  passport_rf: 'Паспорт РФ',
+  foreign_passport: 'Иностранный паспорт',
+  other: 'Другой',
+}
+
+export const tenantKindLabels: Record<S['TenantKind'], string> = {
+  individual: 'Физлицо',
+  legal: 'Юрлицо',
+}
+
+export const cabinetStatusLabels: Record<S['CabinetStatus'], string> = {
+  none: 'нет',
+  invited: 'приглашён',
+  active: 'активен',
+  blocked: 'заблокирован',
+}
+
+export const consentMethodLabels: Record<S['ConsentMethod'], string> = {
+  paper: 'Бумажное',
+  electronic: 'В личном кабинете',
+}
+
+/** Вид ресурса без единиц: «Холодная вода». */
+export const meterTypeShort: Record<S['MeterType'], string> = {
+  cold_water: 'Холодная вода',
+  hot_water: 'Горячая вода',
+  electricity: 'Электроэнергия',
+  electricity_day: 'Электроэнергия (день)',
+  electricity_night: 'Электроэнергия (ночь)',
+  gas: 'Газ',
+  heating: 'Отопление',
+}
+
+/** Варианты для выпадающего списка из словаря подписей. */
+export function options<K extends string>(labels: Record<K, string>): { value: K; label: string }[] {
+  return (Object.entries(labels) as [K, string][]).map(([value, label]) => ({ value, label }))
+}
