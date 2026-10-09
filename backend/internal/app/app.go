@@ -9,7 +9,9 @@ import (
 
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
+	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
+	"landlord/backend/internal/contract"
 	"landlord/backend/internal/file"
 	httpserver "landlord/backend/internal/http"
 	"landlord/backend/internal/meter"
@@ -41,6 +43,8 @@ type App struct {
 	Property *property.Service
 	Meters   *meter.Service
 	Tenants  *tenant.Service
+	Contract *contract.Service
+	Calendar *calendar.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -73,6 +77,8 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		return nil, err
 	}
 	a.Tenants = tenant.NewService(database, a.Audit, clk, cipher, a.Auth, a.Settings, a.Files)
+	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify)
+	a.Calendar = calendar.NewService(database, a.Audit, clk)
 	return a, nil
 }
 
@@ -90,6 +96,8 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Property: property.NewHandler(a.Property),
 			Meters:   meter.NewHandler(a.Meters),
 			Tenants:  tenant.NewHandler(a.Tenants),
+			Contract: contract.NewHandler(a.Contract),
+			Calendar: calendar.NewHandler(a.Calendar),
 		},
 	})
 }
@@ -98,5 +106,7 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	reg := jobs.NewRegistry()
 	jobs.Add(reg, &notify.EmailSendWorker{DB: a.DB, Clock: a.Clock, Sender: sender})
+	jobs.Add(reg, &contract.DailyWorker{Svc: a.Contract})
+	reg.AddDaily(contract.Daily(), a.Clock)
 	return reg
 }

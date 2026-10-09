@@ -247,6 +247,62 @@ export const meterTypeShort: Record<S['MeterType'], string> = {
   heating: 'Отопление',
 }
 
+/** Вид договора кратко (список договоров). */
+export const legalBasisShort: Record<S['LegalBasis'], string> = {
+  ch35: 'Наём',
+  ch34: 'Аренда',
+}
+
+export const terminationInitiatorLabels: Record<S['TerminationInitiator'], string> = {
+  landlord: 'Наймодатель',
+  tenant: 'Наниматель',
+  mutual: 'По соглашению сторон',
+}
+
+export const amendmentKindLabels: Record<S['AmendmentKind'], string> = {
+  indexation: 'Индексация платы',
+  rent_change: 'Изменение платы',
+  extension: 'Продление',
+  terms_change: 'День оплаты, фиксированная часть ЖКУ',
+  other: 'Иные изменения',
+}
+
+export const amendmentStatusLabels: Record<S['AmendmentStatus'], string> = {
+  draft: 'Черновик',
+  signed: 'Подписано',
+  cancelled: 'Отменено',
+}
+
+export const amendmentStatusSeverity: Record<S['AmendmentStatus'], Severity> = {
+  draft: 'warn',
+  signed: 'success',
+  cancelled: 'secondary',
+}
+
+export const actKindLabels: Record<S['ActKind'], string> = {
+  handover: 'Акт приёма-передачи',
+  return: 'Акт возврата',
+}
+
+export const calendarKindLabels: Record<S['CalendarEventKind'], string> = {
+  payment_due: 'Сроки оплаты',
+  overdue: 'Просрочки',
+  contract_end: 'Окончание договоров',
+  contract_end_notice: 'Уведомления',
+  registration: 'Регистрация',
+  indexation: 'Индексация',
+  meter_verification: 'Поверка',
+  showing: 'Показы',
+  repair: 'Ремонты',
+  custom: 'Прочее',
+}
+
+export const manualEventKindLabels: Record<S['ManualCalendarEventKind'], string> = {
+  showing: 'Показ',
+  repair: 'Плановый ремонт',
+  custom: 'Прочее',
+}
+
 /** Варианты для выпадающего списка из словаря подписей. */
 export function options<K extends string>(labels: Record<K, string>): { value: K; label: string }[] {
   return (Object.entries(labels) as [K, string][]).map(([value, label]) => ({ value, label }))

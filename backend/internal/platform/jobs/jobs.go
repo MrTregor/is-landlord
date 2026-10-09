@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+
+	"landlord/backend/internal/platform/clock"
 )
 
 // Очереди и число воркеров (07 Фоновые задачи).
@@ -22,8 +24,11 @@ const DefaultMaxAttempts = 10
 
 // Registry — набор воркеров процесса worker.
 type Registry struct {
-	workers *river.Workers
-	count   int
+	workers  *river.Workers
+	count    int
+	periodic []*river.PeriodicJob
+	// Daily — ежедневные плановые задачи в порядке выполнения (07 Фоновые задачи).
+	Daily []Daily
 }
 
 // NewRegistry создаёт пустой набор воркеров.
@@ -33,6 +38,12 @@ func NewRegistry() *Registry { return &Registry{workers: river.NewWorkers()} }
 func Add[T river.JobArgs](r *Registry, w river.Worker[T]) {
 	river.AddWorker(r.workers, w)
 	r.count++
+}
+
+// AddDaily регистрирует ежедневную задачу (её воркер добавляется отдельно через Add).
+func (r *Registry) AddDaily(d Daily, clk clock.Clock) {
+	r.Daily = append(r.Daily, d)
+	r.periodic = append(r.periodic, PeriodicJobs([]Daily{d}, clk)...)
 }
 
 // Len — число зарегистрированных воркеров.
@@ -56,6 +67,7 @@ func NewWorkerClient(pool *pgxpool.Pool, reg *Registry, log *slog.Logger) (*rive
 			QueueEmail:        {MaxWorkers: 2},
 			QueueIntegrations: {MaxWorkers: 2},
 		},
-		Workers: reg.workers,
+		Workers:      reg.workers,
+		PeriodicJobs: reg.periodic,
 	})
 }

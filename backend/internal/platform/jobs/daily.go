@@ -1,0 +1,156 @@
+package jobs
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+
+	"landlord/backend/internal/platform/clock"
+	"landlord/backend/internal/platform/date"
+	"landlord/backend/internal/platform/db"
+	"landlord/backend/internal/platform/db/sqlc"
+)
+
+// Запуск плановой задачи (job_runs.trigger).
+const (
+	TriggerSchedule = "schedule"
+	TriggerManual   = "manual"
+)
+
+// DailyArgs — аргументы ежедневной задачи: бизнес-дата и способ запуска.
+// Уникальность — по (kind, businessDate) (07 Фоновые задачи, общие правила).
+type DailyArgs struct {
+	BusinessDate date.Date `json:"businessDate" river:"unique"`
+	Trigger      string    `json:"trigger"`
+}
+
+// Daily — описание ежедневной задачи: имя (= kind River), время запуска по Москве и конструктор аргументов.
+type Daily struct {
+	Name   string
+	Hour   int
+	Minute int
+	// Args строит аргументы задачи на бизнес-дату.
+	Args func(DailyArgs) river.JobArgs
+}
+
+// DailySchedule — расписание «каждый день в HH:MM» в часовом поясе loc (River PeriodicSchedule).
+type DailySchedule struct {
+	Hour, Minute int
+	Loc          *time.Location
+}
+
+// Next — ближайший момент запуска строго после t.
+func (s DailySchedule) Next(t time.Time) time.Time {
+	lt := t.In(s.Loc)
+	next := time.Date(lt.Year(), lt.Month(), lt.Day(), s.Hour, s.Minute, 0, 0, s.Loc)
+	if !next.After(lt) {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next
+}
+
+// PeriodicJobs — периодические задачи River для ежедневных задач; бизнес-дата берётся из clk в момент запуска.
+func PeriodicJobs(daily []Daily, clk clock.Clock) []*river.PeriodicJob {
+	out := make([]*river.PeriodicJob, 0, len(daily))
+	for _, d := range daily {
+		d := d
+		out = append(out, river.NewPeriodicJob(
+			DailySchedule{Hour: d.Hour, Minute: d.Minute, Loc: clk.Location()},
+			func() (river.JobArgs, *river.InsertOpts) {
+				return d.Args(DailyArgs{BusinessDate: clk.Today(), Trigger: TriggerSchedule}), nil
+			},
+			&river.PeriodicJobOpts{ID: d.Name},
+		))
+	}
+	return out
+}
+
+// CatchUp — догоняющий запуск: для каждой задачи без успешного запуска за сегодня, время которой уже прошло,
+// ставится задача немедленно (в порядке списка).
+func CatchUp(ctx context.Context, database *db.DB, client *river.Client[pgx.Tx], clk clock.Clock, daily []Daily) error {
+	today := clk.Today()
+	now := clk.Now().In(clk.Location())
+	for _, d := range daily {
+		at := time.Date(now.Year(), now.Month(), now.Day(), d.Hour, d.Minute, 0, 0, clk.Location())
+		if now.Before(at) {
+			continue
+		}
+		done, err := database.Queries().HasSucceededJobRun(ctx, sqlc.HasSucceededJobRunParams{JobName: d.Name, BusinessDate: today})
+		if err != nil {
+			return err
+		}
+		if done {
+			continue
+		}
+		if _, err := client.Insert(ctx, d.Args(DailyArgs{BusinessDate: today, Trigger: TriggerSchedule}), nil); err != nil {
+			return fmt.Errorf("догоняющий запуск %s: %w", d.Name, err)
+		}
+	}
+	return nil
+}
+
+// Stats — итоги запуска плановой задачи (job_runs.stats); Errors — ошибки по отдельным договорам.
+type Stats struct {
+	Counts map[string]int
+	Errors []string
+}
+
+// NewStats — пустые итоги.
+func NewStats() *Stats { return &Stats{Counts: map[string]int{}} }
+
+// Inc увеличивает счётчик.
+func (s *Stats) Inc(key string) { s.Counts[key]++ }
+
+// Fail добавляет ошибку по объекту обработки.
+func (s *Stats) Fail(what string, err error) { s.Errors = append(s.Errors, what+": "+err.Error()) }
+
+// JSON — {"<счётчик>": n, …, "errors": [...]}.
+func (s *Stats) JSON() []byte {
+	m := map[string]any{}
+	for k, v := range s.Counts {
+		m[k] = v
+	}
+	if len(s.Errors) > 0 {
+		m["errors"] = s.Errors
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
+// RunDaily выполняет fn с записью job_runs: running → succeeded / failed (failed — при ошибке fn или ошибках в stats).
+func RunDaily(ctx context.Context, database *db.DB, clk clock.Clock, name string, args DailyArgs,
+	fn func(ctx context.Context, stats *Stats) error,
+) (*Stats, error) {
+	trigger := args.Trigger
+	if trigger == "" {
+		trigger = TriggerSchedule
+	}
+	q := database.Queries()
+	runID, err := q.StartJobRun(ctx, sqlc.StartJobRunParams{JobName: name, BusinessDate: args.BusinessDate, Trigger: trigger, Now: clk.Now()})
+	if err != nil {
+		return nil, err
+	}
+	stats := NewStats()
+	runErr := fn(ctx, stats)
+	status := "succeeded"
+	var errText *string
+	switch {
+	case runErr != nil:
+		status = "failed"
+		t := runErr.Error()
+		errText = &t
+	case len(stats.Errors) > 0:
+		status = "failed"
+		t := fmt.Sprintf("ошибок: %d", len(stats.Errors))
+		errText = &t
+	}
+	now := clk.Now()
+	if err := q.FinishJobRun(ctx, sqlc.FinishJobRunParams{ID: runID, Now: &now, Status: status, Stats: stats.JSON(), ErrorText: errText}); err != nil {
+		return stats, err
+	}
+	return stats, runErr
+}

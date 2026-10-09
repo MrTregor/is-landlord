@@ -12,6 +12,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import { formatDate, toIsoDate } from '@/utils/date'
 import { propertyKindLabels, propertyStatusLabels, propertyStatusSeverity } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import ContractsTab from '../components/ContractsTab.vue'
 import InventoryTab from '../components/InventoryTab.vue'
 import MetersTab from '../components/MetersTab.vue'
 import OverviewTab from '../components/OverviewTab.vue'
@@ -28,7 +29,7 @@ const p = computed(() => property.data.value)
 
 const tabs = [
   { value: 'overview', label: 'Обзор' },
-  { value: 'contracts', label: 'Договоры', stage: 'M3' },
+  { value: 'contracts', label: 'Договоры' },
   { value: 'charges', label: 'Начисления', stage: 'M4' },
   { value: 'expenses', label: 'Затраты', stage: 'M11' },
   { value: 'requests', label: 'Заявки', stage: 'M11' },
@@ -158,6 +159,7 @@ async function saveStatus() {
         </TabList>
         <TabPanels>
           <TabPanel value="overview"><OverviewTab :property="p" /></TabPanel>
+          <TabPanel value="contracts"><ContractsTab v-if="tab === 'contracts'" :property-id="p.id" /></TabPanel>
           <TabPanel value="meters"
             ><MetersTab v-if="tab === 'meters'" :property-id="p.id" :archived="!!p.archivedAt"
           /></TabPanel>

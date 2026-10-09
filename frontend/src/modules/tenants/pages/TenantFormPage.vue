@@ -16,12 +16,15 @@ import { normalizePhone } from '@/utils/phone'
 import { parseProblem } from '@/utils/problem'
 import { emptyTenantForm, tenantSchema, type TenantForm } from '../schemas'
 
+// embedded — форма в диалоге «Новый наниматель» мастера договора: без заголовка, после сохранения — событие saved.
+const props = defineProps<{ embedded?: boolean }>()
+const emit = defineEmits<{ saved: [id: string]; cancel: [] }>()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const qc = useQueryClient()
 const org = useOrganizationSettings()
-const id = computed(() => (route.params.id as string | undefined) ?? '')
+const id = computed(() => (props.embedded ? '' : ((route.params.id as string | undefined) ?? '')))
 const isEdit = computed(() => !!id.value)
 const existing = useTenant(id)
 
@@ -130,7 +133,8 @@ async function submit() {
     }
     await qc.invalidateQueries({ queryKey: ['tenants'] })
     toast.add({ severity: 'success', summary: 'Сохранено', life: 3000 })
-    await router.push(`/tenants/${tenantId}`)
+    if (props.embedded) emit('saved', tenantId)
+    else await router.push(`/tenants/${tenantId}`)
   } catch (e) {
     const p = parseProblem(e)
     serverErrors.value = p.fieldErrors
@@ -150,7 +154,10 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
 
 <template>
   <div>
-    <PageHeader :title="isEdit ? `Изменение: ${existing.data.value?.displayName ?? ''}` : 'Новый наниматель'" />
+    <PageHeader
+      v-if="!embedded"
+      :title="isEdit ? `Изменение: ${existing.data.value?.displayName ?? ''}` : 'Новый наниматель'"
+    />
     <Skeleton v-if="isEdit && existing.isPending.value" height="24rem" />
     <form v-else class="form card" novalidate @submit.prevent="submit">
       <SelectButton
@@ -447,7 +454,7 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
 
       <Message v-if="serverError" severity="error" :closable="false">{{ serverError }}</Message>
       <div class="actions">
-        <Button type="button" label="Отмена" outlined @click="router.back()" />
+        <Button type="button" label="Отмена" outlined @click="embedded ? emit('cancel') : router.back()" />
         <Button type="submit" label="Сохранить" icon="pi pi-check" :loading="saving" />
       </div>
     </form>

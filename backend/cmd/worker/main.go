@@ -43,7 +43,8 @@ func run() error {
 	}
 	defer database.Close()
 
-	a, err := app.New(cfg, log, clock.NewReal(cfg.Location), database, app.Options{})
+	clk := clock.NewReal(cfg.Location)
+	a, err := app.New(cfg, log, clk, database, app.Options{})
 	if err != nil {
 		return err
 	}
@@ -60,6 +61,9 @@ func run() error {
 	}
 	if err := client.Start(ctx); err != nil {
 		return err
+	}
+	if err := jobs.CatchUp(ctx, database, client, clk, reg.Daily); err != nil {
+		log.Error("догоняющий запуск плановых задач", slog.String("error", err.Error()))
 	}
 	log.Info("worker запущен", slog.Int("workers", reg.Len()))
 	<-ctx.Done()
