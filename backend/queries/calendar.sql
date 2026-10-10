@@ -75,3 +75,14 @@ UPDATE job_runs SET finished_at = @now, status = @status, stats = @stats, error_
 
 -- name: HasSucceededJobRun :one
 SELECT EXISTS (SELECT 1 FROM job_runs WHERE job_name = @job_name AND business_date = @business_date AND status = 'succeeded')::boolean;
+
+-- name: LastJobRuns :many
+-- Последний запуск каждой задачи.
+SELECT DISTINCT ON (job_name) * FROM job_runs ORDER BY job_name, started_at DESC;
+
+-- name: ListJobRuns :many
+SELECT * FROM job_runs WHERE (sqlc.narg(job_name)::text IS NULL OR job_name = sqlc.narg(job_name))
+ORDER BY started_at DESC LIMIT @lim OFFSET @off;
+
+-- name: CountJobRuns :one
+SELECT count(*) FROM job_runs WHERE (sqlc.narg(job_name)::text IS NULL OR job_name = sqlc.narg(job_name));

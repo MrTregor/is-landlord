@@ -171,3 +171,94 @@ func (h *Handler) DeleteTariff(ctx context.Context, req api.DeleteTariffRequestO
 	}
 	return api.DeleteTariff204Response{}, nil
 }
+
+func decStr(d *decimal.Decimal) *string {
+	if d == nil {
+		return nil
+	}
+	s := d.String()
+	return &s
+}
+
+func readingDTO(v ReadingView) api.MeterReadingDTO {
+	r := v.Row
+	d := api.MeterReadingDTO{
+		Id: r.ID, MeterId: r.MeterID, MeterType: api.MeterType(r.MeterType), SerialNumber: r.SerialNumber,
+		Property: api.PropertyRef{Id: r.PropertyID, Code: r.PropertyCode}, PeriodMonth: apiconv.FromDate(r.PeriodMonth),
+		ReadingDate: apiconv.FromDate(r.ReadingDate), Value: r.Value.String(), PreviousValue: decStr(v.PrevValue),
+		PreviousDate: apiconv.FromDatePtr(v.PrevDate), Consumption: decStr(v.Consumption), HighConsumption: v.High,
+		Source: api.ReadingSource(r.Source), Status: api.ReadingStatus(r.Status), SubmittedBy: r.SubmittedByName,
+		SubmittedAt: r.SubmittedAt, DecidedAt: r.DecidedAt, RejectReason: r.RejectReason,
+	}
+	if r.ContractID != nil && r.ContractNumber != nil {
+		d.Contract = &api.ContractRef{Id: *r.ContractID, Number: *r.ContractNumber}
+	}
+	return d
+}
+
+func (h *Handler) decision(ctx context.Context, d Decision) (api.MeterReadingDecision, error) {
+	out := api.MeterReadingDecision{Reading: readingDTO(d.Reading)}
+	if d.Utilities != nil {
+		ch, err := h.svc.billing.DTO(ctx, h.svc.db.Queries(), d.Utilities.ChargeID)
+		if err != nil {
+			return out, err
+		}
+		out.UtilitiesCharge = &ch
+	}
+	return out, nil
+}
+
+// ListMeterReadings — GET /meter-readings.
+func (h *Handler) ListMeterReadings(ctx context.Context, req api.ListMeterReadingsRequestObject) (api.ListMeterReadingsResponseObject, error) {
+	p := req.Params
+	paging := apiconv.NewPaging(p.Page, p.PageSize)
+	f := ReadingFilter{PropertyID: p.PropertyId, PeriodMonth: apiconv.ToDatePtr(p.PeriodMonth), Limit: paging.Limit(), Offset: paging.Offset()}
+	if p.Status != nil {
+		f.Status = apiconv.Ptr(string(*p.Status))
+	}
+	views, total, err := h.svc.Readings(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]api.MeterReadingDTO, 0, len(views))
+	for _, v := range views {
+		items = append(items, readingDTO(v))
+	}
+	return api.ListMeterReadings200JSONResponse{Items: items, Total: int(total), Page: paging.Page, PageSize: paging.PageSize}, nil
+}
+
+// CreateMeterReading — POST /meter-readings (показание собственника, принимается сразу).
+func (h *Handler) CreateMeterReading(ctx context.Context, req api.CreateMeterReadingRequestObject) (api.CreateMeterReadingResponseObject, error) {
+	b := req.Body
+	v, err := decimal.NewFromString(b.Value)
+	if err != nil {
+		return nil, apperr.Validation(apperr.FieldError{Field: "value", Message: "Введите число"})
+	}
+	d, err := h.svc.CreateReading(ctx, ReadingInput{
+		MeterID: b.MeterId, PeriodMonth: apiconv.ToDate(b.PeriodMonth), ReadingDate: apiconv.ToDate(b.ReadingDate), Value: v,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.decision(ctx, d)
+	return api.CreateMeterReading201JSONResponse(out), err
+}
+
+// AcceptMeterReading — POST /meter-readings/{id}/accept.
+func (h *Handler) AcceptMeterReading(ctx context.Context, req api.AcceptMeterReadingRequestObject) (api.AcceptMeterReadingResponseObject, error) {
+	d, err := h.svc.AcceptReading(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.decision(ctx, d)
+	return api.AcceptMeterReading200JSONResponse(out), err
+}
+
+// RejectMeterReading — POST /meter-readings/{id}/reject.
+func (h *Handler) RejectMeterReading(ctx context.Context, req api.RejectMeterReadingRequestObject) (api.RejectMeterReadingResponseObject, error) {
+	v, err := h.svc.RejectReading(ctx, req.Id, req.Body.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return api.RejectMeterReading200JSONResponse(readingDTO(v)), nil
+}

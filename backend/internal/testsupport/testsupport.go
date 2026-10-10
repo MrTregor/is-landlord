@@ -110,7 +110,7 @@ func Moscow() *time.Location {
 }
 
 // NewEnv собирает приложение с часами на дату today (полдень по Москве).
-func NewEnv(t *testing.T, today string) *Env {
+func NewEnv(t testing.TB, today string) *Env {
 	t.Helper()
 	ctx := context.Background()
 	cfg := &config.Config{
@@ -139,7 +139,7 @@ type okGotenberg struct{}
 func (okGotenberg) Health(context.Context) error { return nil }
 
 // Owner — прямое подключение владельцем схемы (подготовка данных, проверки в БД).
-func Owner(t *testing.T) *pgx.Conn {
+func Owner(t testing.TB) *pgx.Conn {
 	t.Helper()
 	conn, err := pgx.Connect(context.Background(), OwnerURL)
 	if err != nil {
@@ -279,7 +279,7 @@ func (e *Env) ActiveTenant(t *testing.T, email, password string) *Client {
 }
 
 // tWriter — журнал приложения в выводе теста (видно при падении или -v).
-type tWriter struct{ t *testing.T }
+type tWriter struct{ t testing.TB }
 
 func (w tWriter) Write(p []byte) (int, error) {
 	w.t.Log(strings.TrimRight(string(p), "\n"))

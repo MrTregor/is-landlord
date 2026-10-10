@@ -144,3 +144,6 @@ func (s *Service) wrap(body string, vars map[string]string) string {
 		`<div style="padding:16px 24px;color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb">` + footer + `</div>` +
 		`</div></body></html>`
 }
+
+// Link — абсолютная ссылка на страницу системы (APP_PUBLIC_URL + path).
+func (s *Service) Link(path string) string { return strings.TrimRight(s.cfg.AppPublicURL, "/") + path }

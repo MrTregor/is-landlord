@@ -9,11 +9,13 @@ import (
 
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
+	"landlord/backend/internal/billing"
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
 	"landlord/backend/internal/file"
 	httpserver "landlord/backend/internal/http"
+	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/clock"
@@ -43,6 +45,7 @@ type App struct {
 	Property *property.Service
 	Meters   *meter.Service
 	Tenants  *tenant.Service
+	Billing  *billing.Service
 	Contract *contract.Service
 	Calendar *calendar.Service
 }
@@ -71,13 +74,14 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Users = user.NewService(database, clk, a.Audit, a.Auth)
 	a.Files = file.NewService(database, cfg, clk)
 	a.Property = property.NewService(database, a.Audit, clk, a.Files)
-	a.Meters = meter.NewService(database, a.Audit, clk)
 	cipher, err := crypto.NewCipher(cfg.PDNKey)
 	if err != nil {
 		return nil, err
 	}
 	a.Tenants = tenant.NewService(database, a.Audit, clk, cipher, a.Auth, a.Settings, a.Files)
-	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify)
+	a.Billing = billing.NewService(database, a.Audit, clk, a.Settings)
+	a.Meters = meter.NewService(database, a.Audit, clk, a.Billing, a.Notify)
+	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify, a.Billing)
 	a.Calendar = calendar.NewService(database, a.Audit, clk)
 	return a, nil
 }
@@ -98,8 +102,15 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Tenants:  tenant.NewHandler(a.Tenants),
 			Contract: contract.NewHandler(a.Contract),
 			Calendar: calendar.NewHandler(a.Calendar),
+			Billing:  billing.NewHandler(a.Billing),
+			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, Daily()),
 		},
 	})
+}
+
+// Daily — реализованные ежедневные задачи в порядке выполнения (07 Фоновые задачи).
+func Daily() []jobs.Daily {
+	return []jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily()}
 }
 
 // Workers — воркеры фоновых задач процесса worker.
@@ -107,6 +118,11 @@ func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	reg := jobs.NewRegistry()
 	jobs.Add(reg, &notify.EmailSendWorker{DB: a.DB, Clock: a.Clock, Sender: sender})
 	jobs.Add(reg, &contract.DailyWorker{Svc: a.Contract})
-	reg.AddDaily(contract.Daily(), a.Clock)
+	jobs.Add(reg, &billing.RentWorker{Svc: a.Billing})
+	jobs.Add(reg, &billing.PenaltiesWorker{Svc: a.Billing})
+	jobs.Add(reg, &contract.IndexationWorker{Svc: a.Contract})
+	for _, d := range Daily() {
+		reg.AddDaily(d, a.Clock)
+	}
 	return reg
 }

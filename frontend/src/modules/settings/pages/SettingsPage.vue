@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import OrganizationTab from '../components/OrganizationTab.vue'
 import PdnTab from '../components/PdnTab.vue'
+import ServiceTab from '../components/ServiceTab.vue'
 import TariffsTab from '../components/TariffsTab.vue'
 import TaxesTab from '../components/TaxesTab.vue'
 import UsersTab from '../components/UsersTab.vue'
@@ -18,7 +19,7 @@ const tabs = [
   { value: 'tariffs', label: 'Тарифы', component: TariffsTab },
   { value: 'users', label: 'Пользователи', component: UsersTab },
   { value: 'pdn', label: 'ПДн', component: PdnTab },
-  { value: 'service', label: 'Служебное', stage: 'M4' },
+  { value: 'service', label: 'Служебное', component: ServiceTab },
 ] as const
 
 const route = useRoute()

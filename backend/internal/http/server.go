@@ -13,10 +13,12 @@ import (
 	"landlord/backend/internal/api"
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
+	"landlord/backend/internal/billing"
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
 	"landlord/backend/internal/file"
+	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
@@ -66,6 +68,8 @@ type Modules struct {
 	Tenants  *tenant.Handler
 	Contract *contract.Handler
 	Calendar *calendar.Handler
+	Billing  *billing.Handler
+	Jobs     *jobrun.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
@@ -84,6 +88,8 @@ type (
 	tenantHandler   = tenant.Handler
 	contractHandler = contract.Handler
 	calendarHandler = calendar.Handler
+	billingHandler  = billing.Handler
+	jobsHandler     = jobrun.Handler
 )
 
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
@@ -99,6 +105,8 @@ type Server struct {
 	*tenantHandler
 	*contractHandler
 	*calendarHandler
+	*billingHandler
+	*jobsHandler
 
 	deps     Deps
 	dbPinger Pinger
@@ -114,7 +122,7 @@ func NewServer(deps Deps) *Server {
 	s := &Server{
 		authHandler: m.Auth, userHandler: m.Users, auditHandler: m.Audit, settingsHandler: m.Settings,
 		fileHandler: m.Files, propertyHandler: m.Property, meterHandler: m.Meters, tenantHandler: m.Tenants,
-		contractHandler: m.Contract, calendarHandler: m.Calendar,
+		contractHandler: m.Contract, calendarHandler: m.Calendar, billingHandler: m.Billing, jobsHandler: m.Jobs,
 		deps: deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {

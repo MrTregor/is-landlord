@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"landlord/backend/internal/audit"
+	"landlord/backend/internal/billing"
 	"landlord/backend/internal/billing/calc"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
@@ -111,7 +112,7 @@ func (s *Service) checkRentIncrease(ctx context.Context, q *sqlc.Queries, c sqlc
 	if err != nil {
 		return err
 	}
-	cur := calc.TermsFor(TermsOf(terms), from)
+	cur := calc.TermsFor(billing.TermsOf(terms), from)
 	if newRent <= int64(cur.RentKop) {
 		return nil
 	}
@@ -221,7 +222,7 @@ func (s *Service) UpdateAmendment(ctx context.Context, id uuid.UUID, in Amendmen
 
 // SignAmendment — «Подписано»: изменения применяются в той же транзакции (05 разд. 8.3): новая версия условий,
 // продление (разд. 4.6), сдвиг даты индексации, письмо нанимателю об изменении платы.
-// Пересчёт уже созданных начислений (разд. 5.4) подключается на этапе M4.
+// Уже созданные начисления с месяца вступления пересчитываются (разд. 5.4).
 func (s *Service) SignAmendment(ctx context.Context, id uuid.UUID, signedOn date.Date) (sqlc.ContractAmendment, error) {
 	if signedOn.After(s.clock.Today()) {
 		return sqlc.ContractAmendment{}, apperr.Validation(apperr.FieldError{Field: "signedOn", Message: "Дата подписания не может быть позже сегодняшней"})
@@ -256,6 +257,9 @@ func (s *Service) SignAmendment(ctx context.Context, id uuid.UUID, signedOn date
 			if rentChanged, err = s.applyTerms(ctx, tx, c, a); err != nil {
 				return err
 			}
+			if err := s.billing.ApplyTerms(ctx, tx, c, a.EffectiveFrom, fmt.Sprintf("Допсоглашение № %d", a.Number)); err != nil {
+				return err
+			}
 		}
 		if a.Kind == AmendExtension {
 			if c, err = s.extend(ctx, tx, c, *a.NewEndDate); err != nil {
@@ -287,7 +291,7 @@ func (s *Service) applyTerms(ctx context.Context, tx *db.Tx, c sqlc.Contract, a 
 	if err != nil {
 		return false, err
 	}
-	cur := calc.TermsFor(TermsOf(terms), a.EffectiveFrom)
+	cur := calc.TermsFor(billing.TermsOf(terms), a.EffectiveFrom)
 	next := sqlc.InsertTermsParams{
 		ContractID: c.ID, Version: int16(len(terms) + 1), EffectiveFrom: a.EffectiveFrom, //nolint:gosec // версий немного
 		RentKop: int64(cur.RentKop), UtilitiesFixedKop: int64(cur.UtilitiesFixedKop), PaymentDay: int16(cur.PaymentDay), //nolint:gosec // 1–28

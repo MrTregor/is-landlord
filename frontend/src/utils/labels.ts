@@ -303,6 +303,61 @@ export const manualEventKindLabels: Record<S['ManualCalendarEventKind'], string>
   custom: 'Прочее',
 }
 
+export const adjustmentKindLabels: Record<S['AdjustmentKind'], string> = {
+  manual: 'Корректировка',
+  termination: 'Расторжение договора',
+  terms_change: 'Изменение условий',
+  penalty_recalc: 'Пересчёт пеней',
+  penalty_manual_set: 'Изменение суммы пеней',
+  penalty_writeoff: 'Списание пеней',
+}
+
+export const chargeOriginLabels: Record<S['ChargeOrigin'], string> = {
+  auto: 'авто',
+  manual: 'вручную',
+}
+
+export const manualChargeKindLabels: Record<S['ManualChargeKind'], string> = {
+  damage: 'Возмещение ущерба',
+  other: 'Прочее',
+}
+
+export const readingStatusLabels: Record<S['ReadingStatus'], string> = {
+  submitted: 'На проверке',
+  accepted: 'Принято',
+  rejected: 'Отклонено',
+}
+
+export const readingStatusSeverity: Record<S['ReadingStatus'], Severity> = {
+  submitted: 'warn',
+  accepted: 'success',
+  rejected: 'danger',
+}
+
+export const readingSourceLabels: Record<S['ReadingSource'], string> = {
+  owner: 'Собственник',
+  tenant: 'Наниматель',
+  act_handover: 'Акт приёма-передачи',
+  act_return: 'Акт возврата',
+}
+
+export const jobRunStatusLabels: Record<S['JobRunStatus'], string> = {
+  running: 'Выполняется',
+  succeeded: 'Успешно',
+  failed: 'С ошибками',
+}
+
+export const jobRunStatusSeverity: Record<S['JobRunStatus'], Severity> = {
+  running: 'info',
+  succeeded: 'success',
+  failed: 'danger',
+}
+
+export const jobTriggerLabels: Record<S['JobTrigger'], string> = {
+  schedule: 'по расписанию',
+  manual: 'вручную',
+}
+
 /** Варианты для выпадающего списка из словаря подписей. */
 export function options<K extends string>(labels: Record<K, string>): { value: K; label: string }[] {
   return (Object.entries(labels) as [K, string][]).map(([value, label]) => ({ value, label }))

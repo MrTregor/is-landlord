@@ -90,14 +90,14 @@ test-frontend:
 # Покрытие расчётной подсистемы не ниже 70 % (NFR-Maint-01).
 cover:
 	@if [ -d backend/internal/billing ]; then \
-		cd backend && $(GO) test -coverprofile=coverage.out ./internal/billing/... && \
+		cd backend && $(GO) test -tags integration -count=1 -coverprofile=coverage.out ./internal/billing/... && \
 		total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
 		echo "Покрытие internal/billing: $$total %"; \
 		awk -v t="$$total" 'BEGIN { exit (t < 70) }' || (echo "Покрытие ниже 70 %"; exit 1); \
 	else echo "Пакет internal/billing появится на этапе M4"; fi
 
 bench:
-	cd backend && $(GO) test -run '^$$' -bench . ./internal/billing/...
+	cd backend && $(GO) test -tags integration -run '^$$' -bench . -benchtime 1x ./internal/billing/...
 
 lint:
 	cd backend && $(GOTOOL) golangci-lint run ./...

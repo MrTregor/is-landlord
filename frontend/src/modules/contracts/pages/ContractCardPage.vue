@@ -16,6 +16,7 @@ import { parseProblem } from '@/utils/problem'
 import ActivateDialog from '../components/ActivateDialog.vue'
 import ActsTab from '../components/ActsTab.vue'
 import AmendmentsTab from '../components/AmendmentsTab.vue'
+import ChargesTab from '../components/ChargesTab.vue'
 import TerminateDialog from '../components/TerminateDialog.vue'
 import TermsTab from '../components/TermsTab.vue'
 import TimelineTab from '../components/TimelineTab.vue'
@@ -35,7 +36,7 @@ const closed = computed(() => c.value?.status === 'terminated' || c.value?.statu
 
 const tabs = [
   { value: 'terms', label: 'Условия' },
-  { value: 'charges', label: 'Начисления', stage: 'M4' },
+  { value: 'charges', label: 'Начисления' },
   { value: 'payments', label: 'Платежи', stage: 'M6' },
   { value: 'deposit', label: 'Залог', stage: 'M6' },
   { value: 'documents', label: 'Документы', stage: 'M5' },
@@ -208,6 +209,7 @@ const moreItems = computed(() => [
         </TabList>
         <TabPanels>
           <TabPanel value="terms"><TermsTab :contract="c" /></TabPanel>
+          <TabPanel value="charges"><ChargesTab v-if="tab === 'charges'" :contract="c" /></TabPanel>
           <TabPanel value="amendments">
             <AmendmentsTab v-if="tab === 'amendments'" :contract="c" :create-signal="amendmentSignal" />
           </TabPanel>

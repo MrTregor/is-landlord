@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"landlord/backend/internal/api"
@@ -89,7 +90,11 @@ func (h *Handler) detail(ctx context.Context, t sqlc.Tenant) (api.TenantDetail, 
 		SignatoryPosition: t.SignatoryPosition, SignatoryBasis: t.SignatoryBasis, Phone: t.Phone, Email: t.Email, Note: t.Note,
 		DocNumberMasked: m.DocNumber, RegistrationAddressMasked: m.RegAddress, HasDocument: m.HasDocument,
 		AnonymizedAt: t.AnonymizedAt, Consents: []api.PdnConsentDTO{}, Contracts: []api.TenantContractItem{},
-		DebtKop: 0, // долг — по начислениям (этап M4)
+	}
+	if rows, err := q.DebtByTenant(ctx, []uuid.UUID{t.ID}); err != nil {
+		return api.TenantDetail{}, err
+	} else if len(rows) > 0 {
+		d.DebtKop = rows[0].DebtKop
 	}
 	if t.DocType != nil {
 		d.DocType = apiconv.Ptr(api.DocType(*t.DocType))
@@ -154,6 +159,18 @@ func (h *Handler) ListTenants(ctx context.Context, req api.ListTenantsRequestObj
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	debtRows, err := h.svc.db.Queries().DebtByTenant(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	debts := map[uuid.UUID]int64{}
+	for _, d := range debtRows {
+		debts[d.ID] = d.DebtKop
+	}
 	items := make([]api.TenantListItem, 0, len(rows))
 	for _, r := range rows {
 		status := api.CabinetStatusNone
@@ -163,7 +180,7 @@ func (h *Handler) ListTenants(ctx context.Context, req api.ListTenantsRequestObj
 		items = append(items, api.TenantListItem{
 			Id: r.ID, Kind: api.TenantKind(r.Kind),
 			DisplayName: names.Display(r.Kind, r.LastName, r.FirstName, r.MiddleName, r.OrgName),
-			Phone:       r.Phone, Email: r.Email, ActiveContracts: int(r.ActiveContracts), DebtKop: 0,
+			Phone:       r.Phone, Email: r.Email, ActiveContracts: int(r.ActiveContracts), DebtKop: debts[r.ID],
 			CabinetStatus: status, Anonymized: r.AnonymizedAt != nil,
 		})
 	}

@@ -429,6 +429,77 @@ func (q *Queries) ContractsEndedBy(ctx context.Context, today date.Date) ([]Cont
 	return items, nil
 }
 
+const contractsForIndexation = `-- name: ContractsForIndexation :many
+SELECT id, number, legal_basis, property_id, tenant_id, status, concluded_on, start_date, end_date, termination_date, termination_reason, termination_initiator, actual_end_date, registration_required, is_short_term, registration_done_on, registration_number, first_due_date, deposit_kop, utilities_mode, penalty_enabled, penalty_rate_pct, penalty_grace_days, penalty_cap_pct, penalty_on_utilities, indexation_enabled, indexation_pct, indexation_period_months, next_indexation_on, special_terms, notes, activated_at, activated_by, closed_at, created_by, created_at, updated_at FROM contracts
+WHERE status IN ('active', 'extended') AND indexation_enabled AND next_indexation_on IS NOT NULL
+  AND next_indexation_on <= actual_end_date AND (next_indexation_on - $1::int) <= $2::date
+ORDER BY number
+`
+
+type ContractsForIndexationParams struct {
+	DaysBefore int32
+	Today      date.Date
+}
+
+// Договоры, по которым пора готовить черновик индексации (05 разд. 8.2).
+func (q *Queries) ContractsForIndexation(ctx context.Context, arg ContractsForIndexationParams) ([]Contract, error) {
+	rows, err := q.db.Query(ctx, contractsForIndexation, arg.DaysBefore, arg.Today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Contract{}
+	for rows.Next() {
+		var i Contract
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.LegalBasis,
+			&i.PropertyID,
+			&i.TenantID,
+			&i.Status,
+			&i.ConcludedOn,
+			&i.StartDate,
+			&i.EndDate,
+			&i.TerminationDate,
+			&i.TerminationReason,
+			&i.TerminationInitiator,
+			&i.ActualEndDate,
+			&i.RegistrationRequired,
+			&i.IsShortTerm,
+			&i.RegistrationDoneOn,
+			&i.RegistrationNumber,
+			&i.FirstDueDate,
+			&i.DepositKop,
+			&i.UtilitiesMode,
+			&i.PenaltyEnabled,
+			&i.PenaltyRatePct,
+			&i.PenaltyGraceDays,
+			&i.PenaltyCapPct,
+			&i.PenaltyOnUtilities,
+			&i.IndexationEnabled,
+			&i.IndexationPct,
+			&i.IndexationPeriodMonths,
+			&i.NextIndexationOn,
+			&i.SpecialTerms,
+			&i.Notes,
+			&i.ActivatedAt,
+			&i.ActivatedBy,
+			&i.ClosedAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const contractsStartingBy = `-- name: ContractsStartingBy :many
 SELECT c.id, c.number, c.legal_basis, c.property_id, c.tenant_id, c.status, c.concluded_on, c.start_date, c.end_date, c.termination_date, c.termination_reason, c.termination_initiator, c.actual_end_date, c.registration_required, c.is_short_term, c.registration_done_on, c.registration_number, c.first_due_date, c.deposit_kop, c.utilities_mode, c.penalty_enabled, c.penalty_rate_pct, c.penalty_grace_days, c.penalty_cap_pct, c.penalty_on_utilities, c.indexation_enabled, c.indexation_pct, c.indexation_period_months, c.next_indexation_on, c.special_terms, c.notes, c.activated_at, c.activated_by, c.closed_at, c.created_by, c.created_at, c.updated_at FROM contracts c JOIN properties p ON p.id = c.property_id
 WHERE c.status IN ('active', 'extended') AND c.start_date <= $1::date AND c.actual_end_date >= $1::date
@@ -1188,6 +1259,23 @@ func (q *Queries) GetContractForUpdate(ctx context.Context, id uuid.UUID) (Contr
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const hasIndexationAmendment = `-- name: HasIndexationAmendment :one
+SELECT EXISTS (SELECT 1 FROM contract_amendments WHERE contract_id = $1 AND kind = 'indexation'
+               AND status <> 'cancelled' AND effective_from = $2)::boolean
+`
+
+type HasIndexationAmendmentParams struct {
+	ContractID    uuid.UUID
+	EffectiveFrom date.Date
+}
+
+func (q *Queries) HasIndexationAmendment(ctx context.Context, arg HasIndexationAmendmentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasIndexationAmendment, arg.ContractID, arg.EffectiveFrom)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const insertActReading = `-- name: InsertActReading :exec

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"landlord/backend/internal/audit"
+	"landlord/backend/internal/billing"
 	"landlord/backend/internal/billing/calc"
 	"landlord/backend/internal/contract"
 	"landlord/backend/internal/platform/apperr"
@@ -112,6 +113,13 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Event, error) {
 			}, r.PropertyCode, r.ContractNumber))
 		}
 	}
+	if f.wants(KindPaymentDue) || f.wants(KindOverdue) {
+		due, err := s.fromCharges(ctx, q, f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, due...)
+	}
 	if f.wants(KindPaymentDue) {
 		due, err := s.paymentDue(ctx, q, f)
 		if err != nil {
@@ -119,12 +127,42 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Event, error) {
 		}
 		out = append(out, due...)
 	}
-	// «Просрочка» вычисляется по начислениям — появится вместе с ними на этапе M4.
 	return out, nil
 }
 
-// paymentDue — сроки оплаты по графику договоров (05 разд. 13.2); до этапа M4 начислений нет, поэтому
-// все сроки — прогноз по текущей версии условий.
+// fromCharges — «Срок оплаты» по начислениям с сроком в диапазоне и «Просрочка» — начисления основного долга с
+// прошедшим сроком и долгом (05 разд. 13.2).
+func (s *Service) fromCharges(ctx context.Context, q *sqlc.Queries, f Filter) ([]Event, error) {
+	rows, err := q.ChargesInRange(ctx, sqlc.ChargesInRangeParams{FromDate: f.From, ToDate: f.To, PropertyID: f.PropertyID})
+	if err != nil {
+		return nil, err
+	}
+	today := s.clock.Today()
+	var out []Event
+	for _, r := range rows {
+		id, number, pid, code := r.ContractID, r.ContractNumber, r.PropertyID, r.PropertyCode
+		outstanding := r.AmountKop - r.PaidKop
+		ev := Event{Date: *r.DueDate, PropertyID: &pid, PropertyCode: &code, ContractID: &id, ContractNumber: &number,
+			Source: "computed", Done: outstanding <= 0}
+		if f.wants(KindPaymentDue) {
+			e := ev
+			amount := r.AmountKop
+			e.Kind, e.AmountKop = KindPaymentDue, &amount
+			e.Title = fmt.Sprintf("Срок оплаты: %s, договор %s", r.Title, r.ContractNumber)
+			out = append(out, e)
+		}
+		if f.wants(KindOverdue) && r.Kind != "penalty" && outstanding > 0 && r.DueDate.Before(today) {
+			e := ev
+			e.Kind, e.AmountKop = KindOverdue, &outstanding
+			e.Title = fmt.Sprintf("Просрочка: %s, договор %s — %s", r.Title, r.ContractNumber, money.Kop(outstanding).Format())
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// paymentDue — прогноз сроков оплаты по графику договоров для будущих месяцев, начисления за которые ещё не созданы
+// (05 разд. 13.2): сумма — по текущей версии условий.
 func (s *Service) paymentDue(ctx context.Context, q *sqlc.Queries, f Filter) ([]Event, error) {
 	contracts, err := q.ScheduleContracts(ctx, sqlc.ScheduleContractsParams{FromDate: f.From, ToDate: f.To, PropertyID: f.PropertyID})
 	if err != nil {
@@ -141,6 +179,15 @@ func (s *Service) paymentDue(ctx context.Context, q *sqlc.Queries, f Filter) ([]
 	if err != nil {
 		return nil, err
 	}
+	charged := map[string]bool{}
+	months, err := q.ContractMonthsWithRent(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range months {
+		charged[m.ContractID.String()+m.PeriodMonth.String()] = true
+	}
+	today := s.clock.Today()
 	byContract := map[uuid.UUID][]sqlc.ContractTerm{}
 	for _, t := range terms {
 		byContract[t.ContractID] = append(byContract[t.ContractID], t)
@@ -155,14 +202,14 @@ func (s *Service) paymentDue(ctx context.Context, q *sqlc.Queries, f Filter) ([]
 		if c.ActualEndDate != nil {
 			end = *c.ActualEndDate
 		}
-		for _, l := range calc.Schedule(c.StartDate, end, c.FirstDueDate, contract.TermsOf(ts), c.UtilitiesMode == contract.UtilitiesFixed, 0) {
-			if l.DueDate.Before(f.From) || l.DueDate.After(f.To) {
+		for _, l := range calc.Schedule(c.StartDate, end, c.FirstDueDate, billing.TermsOf(ts), c.UtilitiesMode == contract.UtilitiesFixed, 0) {
+			if l.DueDate.Before(f.From) || l.DueDate.After(f.To) || l.DueDate.Before(today) || charged[c.ID.String()+l.Month.String()] {
 				continue
 			}
 			amount := int64(l.RentKop + l.UtilitiesKop)
 			id, number, pid, code := c.ID, c.Number, c.PropertyID, c.PropertyCode
 			out = append(out, Event{
-				Kind: KindPaymentDue, Title: fmt.Sprintf("Срок оплаты по договору %s: %s", c.Number, money.Kop(amount).Format()),
+				Kind: KindPaymentDue, Title: fmt.Sprintf("Срок оплаты по договору %s: %s (прогноз)", c.Number, money.Kop(amount).Format()),
 				Date: l.DueDate, PropertyID: &pid, PropertyCode: &code, ContractID: &id, ContractNumber: &number,
 				Source: "computed", AmountKop: &amount, Forecast: true,
 			})

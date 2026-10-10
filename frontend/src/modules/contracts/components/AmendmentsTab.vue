@@ -217,9 +217,7 @@ const monthLabel = computed(() => (form.month ? formatMonth(toIsoDate(form.month
         </template>
       </Column>
     </DataTable>
-    <p class="hint">
-      Пересчёт уже созданных начислений после подписания подключается вместе с расчётной подсистемой (этап M4).
-    </p>
+    <p class="hint">После подписания уже созданные начисления с месяца вступления пересчитываются.</p>
 
     <Dialog
       v-model:visible="dialog"

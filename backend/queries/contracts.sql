@@ -305,3 +305,14 @@ SELECT count(*) FROM audit_log a
 WHERE (a.entity_type = 'contract' AND a.entity_id = @contract_id::text)
    OR (a.entity_type = 'amendment' AND a.entity_id IN (SELECT id::text FROM contract_amendments WHERE contract_id::text = @contract_id::text))
    OR (a.entity_type = 'act' AND a.entity_id IN (SELECT id::text FROM contract_acts WHERE contract_id::text = @contract_id::text));
+
+-- name: ContractsForIndexation :many
+-- Договоры, по которым пора готовить черновик индексации (05 разд. 8.2).
+SELECT * FROM contracts
+WHERE status IN ('active', 'extended') AND indexation_enabled AND next_indexation_on IS NOT NULL
+  AND next_indexation_on <= actual_end_date AND (next_indexation_on - sqlc.arg(days_before)::int) <= sqlc.arg(today)::date
+ORDER BY number;
+
+-- name: HasIndexationAmendment :one
+SELECT EXISTS (SELECT 1 FROM contract_amendments WHERE contract_id = @contract_id AND kind = 'indexation'
+               AND status <> 'cancelled' AND effective_from = @effective_from)::boolean;

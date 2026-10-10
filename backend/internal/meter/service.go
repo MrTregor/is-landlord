@@ -1,4 +1,4 @@
-// Package meter — приборы учёта объектов и тарифы (FR-01.1, FR-05.5). Показания и начисления ЖКУ — этап M4.
+// Package meter — приборы учёта объектов, тарифы и показания (FR-01.1, FR-05.5).
 package meter
 
 import (
@@ -10,6 +10,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"landlord/backend/internal/audit"
+	"landlord/backend/internal/billing"
+	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/date"
@@ -31,14 +33,16 @@ var TypeTitles = map[string]string{
 
 // Service — счётчики и тарифы.
 type Service struct {
-	db    *db.DB
-	audit *audit.Service
-	clock clock.Clock
+	db      *db.DB
+	audit   *audit.Service
+	clock   clock.Clock
+	billing *billing.Service
+	notify  *notify.Service
 }
 
 // NewService создаёт сервис.
-func NewService(database *db.DB, au *audit.Service, clk clock.Clock) *Service {
-	return &Service{db: database, audit: au, clock: clk}
+func NewService(database *db.DB, au *audit.Service, clk clock.Clock, bl *billing.Service, nt *notify.Service) *Service {
+	return &Service{db: database, audit: au, clock: clk, billing: bl, notify: nt}
 }
 
 // Input — поля счётчика.

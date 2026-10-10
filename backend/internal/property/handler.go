@@ -89,12 +89,20 @@ func (h *Handler) ListProperties(ctx context.Context, req api.ListPropertiesRequ
 	if err != nil {
 		return nil, err
 	}
+	debtRows, err := q.DebtByProperty(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	debts := map[uuid.UUID]int64{}
+	for _, d := range debtRows {
+		debts[d.ID] = d.DebtKop
+	}
 	items := make([]api.PropertyListItem, 0, len(rows))
 	for _, r := range rows {
 		items = append(items, api.PropertyListItem{
 			Id: r.ID, Code: r.Code, Kind: api.PropertyKind(r.Kind), Address: r.Address, AreaSqm: r.AreaSqm.StringFixed(2),
 			Status: api.PropertyStatus(r.Status), FiscalMode: api.FiscalMode(r.FiscalMode), Archived: r.ArchivedAt != nil,
-			CurrentContract: contractRef(current, r.ID), DebtKop: 0, // долг — по начислениям (этап M4)
+			CurrentContract: contractRef(current, r.ID), DebtKop: debts[r.ID],
 		})
 	}
 	return api.ListProperties200JSONResponse{Items: items, Total: int(total), Page: paging.Page, PageSize: paging.PageSize}, nil

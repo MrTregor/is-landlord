@@ -15,6 +15,17 @@ import (
 	"landlord/backend/internal/platform/date"
 )
 
+const countJobRuns = `-- name: CountJobRuns :one
+SELECT count(*) FROM job_runs WHERE ($1::text IS NULL OR job_name = $1)
+`
+
+func (q *Queries) CountJobRuns(ctx context.Context, jobName *string) (int64, error) {
+	row := q.db.QueryRow(ctx, countJobRuns, jobName)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createManualEvent = `-- name: CreateManualEvent :one
 INSERT INTO calendar_events (kind, title, starts_on, start_time, end_time, property_id, contract_id, source, notes,
                              created_by, created_at, updated_at)
@@ -212,6 +223,41 @@ func (q *Queries) HasSucceededJobRun(ctx context.Context, arg HasSucceededJobRun
 	return column_1, err
 }
 
+const lastJobRuns = `-- name: LastJobRuns :many
+SELECT DISTINCT ON (job_name) id, job_name, business_date, trigger, started_at, finished_at, status, stats, error_text FROM job_runs ORDER BY job_name, started_at DESC
+`
+
+// Последний запуск каждой задачи.
+func (q *Queries) LastJobRuns(ctx context.Context) ([]JobRun, error) {
+	rows, err := q.db.Query(ctx, lastJobRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobRun{}
+	for rows.Next() {
+		var i JobRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobName,
+			&i.BusinessDate,
+			&i.Trigger,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Status,
+			&i.Stats,
+			&i.ErrorText,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCalendarEvents = `-- name: ListCalendarEvents :many
 
 SELECT e.id, e.kind, e.title, e.starts_on, e.start_time, e.end_time, e.property_id, e.contract_id, e.source, e.auto_key, e.done, e.done_at, e.notes, e.created_by, e.created_at, e.updated_at, p.code AS property_code, c.number AS contract_number
@@ -286,6 +332,47 @@ func (q *Queries) ListCalendarEvents(ctx context.Context, arg ListCalendarEvents
 			&i.UpdatedAt,
 			&i.PropertyCode,
 			&i.ContractNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listJobRuns = `-- name: ListJobRuns :many
+SELECT id, job_name, business_date, trigger, started_at, finished_at, status, stats, error_text FROM job_runs WHERE ($1::text IS NULL OR job_name = $1)
+ORDER BY started_at DESC LIMIT $3 OFFSET $2
+`
+
+type ListJobRunsParams struct {
+	JobName *string
+	Off     int32
+	Lim     int32
+}
+
+func (q *Queries) ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error) {
+	rows, err := q.db.Query(ctx, listJobRuns, arg.JobName, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobRun{}
+	for rows.Next() {
+		var i JobRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobName,
+			&i.BusinessDate,
+			&i.Trigger,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Status,
+			&i.Stats,
+			&i.ErrorText,
 		); err != nil {
 			return nil, err
 		}

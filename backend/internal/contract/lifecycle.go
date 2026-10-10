@@ -177,6 +177,10 @@ func (s *Service) Activate(ctx context.Context, id uuid.UUID, concludedOn date.D
 				return err
 			}
 		}
+		created, err := s.billing.EnsureRent(ctx, tx, c, today)
+		if err != nil {
+			return err
+		}
 		if err := s.syncEvents(ctx, tx, c); err != nil {
 			return err
 		}
@@ -191,7 +195,8 @@ func (s *Service) Activate(ctx context.Context, id uuid.UUID, concludedOn date.D
 		if err := s.audit.Record(ctx, tx.Q, audit.Entry{
 			Action: "contract.activate", EntityType: "contract", EntityID: id.String(),
 			Summary: fmt.Sprintf("Договор № %s введён в действие, подписан %s", c.Number, concludedOn.Format()),
-			Before:  map[string]any{"status": before.Status}, After: map[string]any{"status": c.Status, "concludedOn": concludedOn.String()},
+			Before:  map[string]any{"status": before.Status},
+			After:   map[string]any{"status": c.Status, "concludedOn": concludedOn.String(), "chargesCreated": len(created)},
 		}); err != nil {
 			return err
 		}
@@ -305,7 +310,8 @@ func (s *Service) release(ctx context.Context, tx *db.Tx, c sqlc.Contract) error
 	}
 }
 
-// Terminate — расторжение (05 разд. 4.7). Пересчёт начислений и авансов подключается на этапах M4 и M6.
+// Terminate — расторжение (05 разд. 4.7): начисления после месяца последнего дня отменяются, последний месяц
+// пересчитывается; расхождение «переплата» по остатку аванса подключается вместе с платежами (M6).
 func (s *Service) Terminate(ctx context.Context, id uuid.UUID, last date.Date, initiator, reason string) (sqlc.Contract, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -332,6 +338,9 @@ func (s *Service) Terminate(ctx context.Context, id uuid.UUID, last date.Date, i
 		})
 		if err != nil {
 			return dbError(err)
+		}
+		if err := s.billing.Terminate(ctx, tx, c); err != nil {
+			return err
 		}
 		if _, err := tx.Q.CancelDraftAmendments(ctx, sqlc.CancelDraftAmendmentsParams{ContractID: id, CancelReason: ptr("Расторжение договора")}); err != nil {
 			return err

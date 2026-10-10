@@ -2,6 +2,7 @@
 // Диалог «Ввести в действие» (14 Экраны собственника, раздел 4.4).
 import { computed, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
+import { api, unwrap } from '@/api/client'
 import { useContractMutations, type ContractDetail } from '@/api/queries/contracts'
 import { useTenant } from '@/api/queries/tenants'
 import DateInput from '@/components/DateInput.vue'
@@ -40,7 +41,12 @@ async function submit() {
       inviteTenant: !!canInvite.value && invite.value,
     })
     visible.value = false
-    toast.add({ severity: 'success', summary: 'Договор введён в действие', life: 3000 })
+    const charges = await unwrap(api.GET('/charges', { params: { query: { contractId: d.id, pageSize: 1 } } }))
+    toast.add({
+      severity: 'success',
+      summary: `Договор введён в действие. Создано начислений: ${charges.total}`,
+      life: 4000,
+    })
     emit('activated', d)
   } catch (err) {
     error.value = parseProblem(err).message

@@ -288,7 +288,7 @@ func (s *Service) UpdateAct(ctx context.Context, id uuid.UUID, in ActInput) (Act
 }
 
 // SignAct — отметка «Подписан»: показания принимаются (source act_*, status accepted), акт больше не редактируется.
-// Итоговое начисление ЖКУ по акту возврата подключается на этапе M4, PDF — на этапе M5.
+// По акту возврата при ЖКУ «По счётчикам» создаётся итоговое начисление ЖКУ; PDF — на этапе M5.
 func (s *Service) SignAct(ctx context.Context, id uuid.UUID, signedOn date.Date) (ActView, error) {
 	if signedOn.After(s.clock.Today()) {
 		return ActView{}, apperr.Validation(apperr.FieldError{Field: "signedOn", Message: "Дата подписания не может быть позже сегодняшней"})
@@ -316,6 +316,15 @@ func (s *Service) SignAct(ctx context.Context, id uuid.UUID, signedOn date.Date)
 		}
 		if err := tx.Q.AcceptActReadings(ctx, sqlc.AcceptActReadingsParams{ActID: &id, DecidedBy: actorID(ctx), Now: ptr(s.clock.Now())}); err != nil {
 			return err
+		}
+		if a.Kind == ActReturn {
+			res, err := s.billing.FinalUtilities(ctx, tx, c, a)
+			if err != nil {
+				return err
+			}
+			if err := s.billing.RecordCreated(ctx, tx, c, res, "по акту возврата"); err != nil {
+				return err
+			}
 		}
 		if v, err = s.actView(ctx, tx.Q, c, a); err != nil {
 			return err

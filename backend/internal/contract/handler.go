@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/google/uuid"
+
 	"github.com/shopspring/decimal"
 
 	"landlord/backend/internal/api"
@@ -105,8 +107,11 @@ func (h *Handler) detailDTO(ctx context.Context, c sqlc.Contract) (api.ContractD
 		},
 		CurrentTerms: termsDTO(h.svc.CurrentTerms(c, d.Terms)), TermsHistory: make([]api.ContractTermsDTO, 0, len(d.Terms)),
 		Occupants: make([]api.OccupantDTO, 0, len(d.Occupants)), Warnings: d.Warnings, ActivationBlockers: d.Blockers.All(),
-		// Начисления, платежи и залог появляются на этапах M4 и M6; до них суммы — нули.
-		Balances: api.ContractBalances{DepositExpectedKop: c.DepositKop},
+		// Залог (внесено, остаток) появляется вместе с платежами на этапе M6.
+		Balances: api.ContractBalances{
+			DebtKop: d.Balances.DebtKop, OverdueKop: d.Balances.OverdueKop, PenaltiesAccruingKop: d.Balances.PenaltiesAccruingKop,
+			AdvanceKop: d.Balances.AdvanceKop, DepositExpectedKop: c.DepositKop,
+		},
 	}
 	if c.TerminationInitiator != nil {
 		dto.TerminationInitiator = apiconv.Ptr(api.TerminationInitiator(*c.TerminationInitiator))
@@ -148,6 +153,14 @@ func (h *Handler) ListContracts(ctx context.Context, req api.ListContractsReques
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	debts, err := h.svc.Debts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]api.ContractListItem, 0, len(rows))
 	for _, r := range rows {
 		end := r.EndDate
@@ -159,7 +172,7 @@ func (h *Handler) ListContracts(ctx context.Context, req api.ListContractsReques
 			Status: api.ContractStatus(r.Status), Property: api.PropertyRef{Id: r.PropertyID, Code: r.PropertyCode},
 			Tenant:    api.TenantRef{Id: r.TenantID, DisplayName: names.Display(r.TenantKind, r.LastName, r.FirstName, r.MiddleName, r.OrgName)},
 			StartDate: apiconv.FromDate(r.StartDate), EndDate: apiconv.FromDate(r.EndDate), ActualEndDate: apiconv.FromDate(end),
-			RentKop: r.RentKop,
+			RentKop: r.RentKop, DebtKop: debts[r.ID],
 		})
 	}
 	return api.ListContracts200JSONResponse{Items: items, Total: int(total), Page: paging.Page, PageSize: paging.PageSize}, nil

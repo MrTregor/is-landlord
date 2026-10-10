@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"landlord/backend/internal/audit"
+	"landlord/backend/internal/billing"
 	"landlord/backend/internal/billing/calc"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
@@ -18,7 +19,6 @@ import (
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
-	"landlord/backend/internal/platform/money"
 	"landlord/backend/internal/platform/reqctx"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
@@ -54,11 +54,14 @@ type Service struct {
 	tenants  *tenant.Service
 	settings *settings.Service
 	notify   *notify.Service
+	billing  *billing.Service
 }
 
 // NewService создаёт сервис договоров.
-func NewService(database *db.DB, au *audit.Service, clk clock.Clock, ts *tenant.Service, st *settings.Service, nt *notify.Service) *Service {
-	return &Service{db: database, audit: au, clock: clk, tenants: ts, settings: st, notify: nt}
+func NewService(database *db.DB, au *audit.Service, clk clock.Clock, ts *tenant.Service, st *settings.Service, nt *notify.Service,
+	bl *billing.Service,
+) *Service {
+	return &Service{db: database, audit: au, clock: clk, tenants: ts, settings: st, notify: nt, billing: bl}
 }
 
 // Occupant — проживающий.
@@ -654,16 +657,4 @@ func actualEnd(c sqlc.Contract) date.Date {
 		return *c.TerminationDate
 	}
 	return c.EndDate
-}
-
-// TermsOf переводит версии условий в calc.Terms.
-func TermsOf(rows []sqlc.ContractTerm) []calc.Terms {
-	out := make([]calc.Terms, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, calc.Terms{
-			Version: int(r.Version), EffectiveFrom: r.EffectiveFrom, RentKop: money.Kop(r.RentKop),
-			UtilitiesFixedKop: money.Kop(r.UtilitiesFixedKop), PaymentDay: int(r.PaymentDay),
-		})
-	}
-	return out
 }

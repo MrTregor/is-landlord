@@ -14,18 +14,37 @@ import (
 type Querier interface {
 	AcceptActReadings(ctx context.Context, arg AcceptActReadingsParams) error
 	AcceptPolicy(ctx context.Context, arg AcceptPolicyParams) error
+	AcceptReading(ctx context.Context, arg AcceptReadingParams) error
 	// Показания, внесённые в акт (черновые — submitted, после подписания — accepted).
 	ActReadings(ctx context.Context, actID *uuid.UUID) ([]MeterReading, error)
 	ActivateContract(ctx context.Context, arg ActivateContractParams) (Contract, error)
 	ActivateUser(ctx context.Context, arg ActivateUserParams) (User, error)
+	// Активные распределения на начисление, последние первыми (отмена излишка — с последних по времени).
+	ActiveAllocations(ctx context.Context, chargeID uuid.UUID) ([]ActiveAllocationsRow, error)
+	ActiveOwnerUsers(ctx context.Context) ([]ActiveOwnerUsersRow, error)
 	ActivePropertyMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
 	AddPropertyPhoto(ctx context.Context, arg AddPropertyPhotoParams) (PropertyPhoto, error)
+	AllTariffs(ctx context.Context) ([]Tariff, error)
 	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
 	CancelAmendment(ctx context.Context, arg CancelAmendmentParams) (ContractAmendment, error)
+	CancelCharge(ctx context.Context, arg CancelChargeParams) error
 	CancelDraftAmendments(ctx context.Context, arg CancelDraftAmendmentsParams) ([]uuid.UUID, error)
+	ChargeByKey(ctx context.Context, idempotencyKey *string) (Charge, error)
+	// Распределения на начисление с датами поступления платежей (для расчёта пеней).
+	ChargePayments(ctx context.Context, chargeID uuid.UUID) ([]ChargePaymentsRow, error)
+	// Начисления с сроком в диапазоне (календарь, 05 разд. 13.2).
+	ChargesInRange(ctx context.Context, arg ChargesInRangeParams) ([]ChargesInRangeRow, error)
 	CloseStatusHistory(ctx context.Context, arg CloseStatusHistoryParams) error
+	// Долг, просрочка и начисляемые пени по договорам (карточка, списки).
+	ContractBalances(ctx context.Context, arg ContractBalancesParams) ([]ContractBalancesRow, error)
+	// Неотменённые начисления договора (пересчёт при допсоглашении и расторжении).
+	ContractChargesForUpdate(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
+	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
+	ContractForPropertyMonth(ctx context.Context, arg ContractForPropertyMonthParams) (Contract, error)
+	// Месяцы, за которые у договоров есть начисления платы (чтобы не показывать прогноз для них).
+	ContractMonthsWithRent(ctx context.Context, ids []uuid.UUID) ([]ContractMonthsWithRentRow, error)
 	// Не черновой договор объекта, начинающийся в дату (чтобы не освобождать объект между договорами).
 	ContractStartingOn(ctx context.Context, arg ContractStartingOnParams) (Contract, error)
 	// Журнал по договору
@@ -33,16 +52,23 @@ type Querier interface {
 	ContractTimeline(ctx context.Context, arg ContractTimelineParams) ([]ContractTimelineRow, error)
 	// Договоры, фактический конец которых раньше даты, а объект всё ещё «Сдан» по этому договору (contracts.daily).
 	ContractsEndedBy(ctx context.Context, today date.Date) ([]Contract, error)
+	// Договоры, по которым пора готовить черновик индексации (05 разд. 8.2).
+	ContractsForIndexation(ctx context.Context, arg ContractsForIndexationParams) ([]Contract, error)
+	// Договоры для billing.rent_daily (05 разд. 5.3).
+	ContractsForRent(ctx context.Context, horizon date.Date) ([]Contract, error)
 	// Действующие договоры, начавшиеся не позже даты, у которых объект ещё не «Сдан» на дату начала (contracts.daily).
 	ContractsStartingBy(ctx context.Context, today date.Date) ([]Contract, error)
 	// Договоры, срок которых истёк (contracts.daily).
 	ContractsToFinish(ctx context.Context, today date.Date) ([]Contract, error)
 	CountActiveMeters(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountAudit(ctx context.Context, arg CountAuditParams) (int64, error)
+	CountCharges(ctx context.Context, arg CountChargesParams) (CountChargesRow, error)
 	CountContractTimeline(ctx context.Context, contractID string) (int64, error)
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
+	CountJobRuns(ctx context.Context, jobName *string) (int64, error)
 	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountProperties(ctx context.Context, arg CountPropertiesParams) (int64, error)
+	CountReadings(ctx context.Context, arg CountReadingsParams) (int64, error)
 	CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateAct(ctx context.Context, arg CreateActParams) (ContractAct, error)
@@ -61,6 +87,8 @@ type Querier interface {
 	// Текущие договоры объектов (действует на дату): номер, наниматель, срок.
 	CurrentContracts(ctx context.Context, arg CurrentContractsParams) ([]CurrentContractsRow, error)
 	CurrentStatusRow(ctx context.Context, propertyID uuid.UUID) (PropertyStatusHistory, error)
+	DebtByProperty(ctx context.Context, ids []uuid.UUID) ([]DebtByPropertyRow, error)
+	DebtByTenant(ctx context.Context, ids []uuid.UUID) ([]DebtByTenantRow, error)
 	DeleteActReadings(ctx context.Context, actID *uuid.UUID) error
 	DeleteAutoEvent(ctx context.Context, autoKey *string) error
 	// Удалить невыполненные автособытия с ключом, начинающимся с prefix (пересоздание при изменении сроков).
@@ -88,6 +116,8 @@ type Querier interface {
 	GetAuthToken(ctx context.Context, arg GetAuthTokenParams) (GetAuthTokenRow, error)
 	GetCalendarEvent(ctx context.Context, id uuid.UUID) (GetCalendarEventRow, error)
 	GetCalendarEventForUpdate(ctx context.Context, id uuid.UUID) (CalendarEvent, error)
+	GetChargeForUpdate(ctx context.Context, id uuid.UUID) (Charge, error)
+	GetChargeRow(ctx context.Context, id uuid.UUID) (GetChargeRowRow, error)
 	GetConsent(ctx context.Context, arg GetConsentParams) (PdnConsent, error)
 	GetContract(ctx context.Context, id uuid.UUID) (Contract, error)
 	GetContractForUpdate(ctx context.Context, id uuid.UUID) (Contract, error)
@@ -105,6 +135,8 @@ type Querier interface {
 	GetOrganizationShortName(ctx context.Context) (string, error)
 	GetProperty(ctx context.Context, id uuid.UUID) (Property, error)
 	GetPropertyForUpdate(ctx context.Context, id uuid.UUID) (Property, error)
+	GetReading(ctx context.Context, id uuid.UUID) (GetReadingRow, error)
+	GetReadingForUpdate(ctx context.Context, id uuid.UUID) (MeterReading, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
 	GetTariff(ctx context.Context, id uuid.UUID) (Tariff, error)
 	GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error)
@@ -115,10 +147,16 @@ type Querier interface {
 	GetUserByTenantID(ctx context.Context, tenantID *uuid.UUID) (User, error)
 	// Есть ли на дату действующий (не черновой и не завершённый раньше) договор по объекту.
 	HasActiveContractOn(ctx context.Context, arg HasActiveContractOnParams) (bool, error)
+	HasIndexationAmendment(ctx context.Context, arg HasIndexationAmendmentParams) (bool, error)
 	HasSucceededJobRun(ctx context.Context, arg HasSucceededJobRunParams) (bool, error)
 	InsertActReading(ctx context.Context, arg InsertActReadingParams) error
+	InsertAdjustment(ctx context.Context, arg InsertAdjustmentParams) error
+	InsertAllocation(ctx context.Context, arg InsertAllocationParams) error
 	// Журнал действий (FR-12, NFR-Sec-04).
 	InsertAudit(ctx context.Context, arg InsertAuditParams) (int64, error)
+	// Начисления (FR-05), распределения и пени.
+	// Автоначисление; повтор с тем же idempotency_key ничего не создаёт (нет строк в ответе).
+	InsertAutoCharge(ctx context.Context, arg InsertAutoChargeParams) (uuid.UUID, error)
 	InsertConsent(ctx context.Context, arg InsertConsentParams) (PdnConsent, error)
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
 	// Файлы (06 API, раздел 6).
@@ -126,7 +164,9 @@ type Querier interface {
 	InsertInventoryItem(ctx context.Context, arg InsertInventoryItemParams) (PropertyInventoryItem, error)
 	// Вход, сессии, токены (NFR-Sec-01).
 	InsertLoginAttempt(ctx context.Context, arg InsertLoginAttemptParams) error
+	InsertManualCharge(ctx context.Context, arg InsertManualChargeParams) (uuid.UUID, error)
 	InsertOccupant(ctx context.Context, arg InsertOccupantParams) error
+	InsertOwnerReading(ctx context.Context, arg InsertOwnerReadingParams) (uuid.UUID, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	// Условия и проживающие
 	InsertTerms(ctx context.Context, arg InsertTermsParams) (ContractTerm, error)
@@ -135,19 +175,25 @@ type Querier interface {
 	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
 	// Последний запуск плановой задачи.
 	LastJobRun(ctx context.Context, jobName string) (JobRun, error)
+	// Последний запуск каждой задачи.
+	LastJobRuns(ctx context.Context) ([]JobRun, error)
 	// Дата последнего повышения платы: версия условий с платой выше предыдущей версии (нет строк — повышений не было).
 	LastRentIncrease(ctx context.Context, contractID uuid.UUID) (date.Date, error)
 	ListActiveOwners(ctx context.Context) ([]User, error)
 	// Акты
 	ListActs(ctx context.Context, contractID uuid.UUID) ([]ContractAct, error)
+	ListAdjustments(ctx context.Context, chargeID uuid.UUID) ([]ListAdjustmentsRow, error)
 	// Допсоглашения
 	ListAmendments(ctx context.Context, contractID uuid.UUID) ([]ContractAmendment, error)
 	ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error)
 	// Календарь (FR-09) и история плановых задач.
 	ListCalendarEvents(ctx context.Context, arg ListCalendarEventsParams) ([]ListCalendarEventsRow, error)
+	// Список и сводки
+	ListCharges(ctx context.Context, arg ListChargesParams) ([]ListChargesRow, error)
 	ListConsents(ctx context.Context, tenantID uuid.UUID) ([]PdnConsent, error)
 	ListContracts(ctx context.Context, arg ListContractsParams) ([]ListContractsRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
+	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
 	// Счётчики и тарифы (FR-01.1, FR-05.5).
 	ListMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
 	ListOccupants(ctx context.Context, contractID uuid.UUID) ([]ContractOccupant, error)
@@ -155,6 +201,7 @@ type Querier interface {
 	// Договоры объекта для вкладки «Договоры» карточки объекта.
 	ListPropertyContracts(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyContractsRow, error)
 	ListPropertyPhotos(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyPhotosRow, error)
+	ListReadings(ctx context.Context, arg ListReadingsParams) ([]ListReadingsRow, error)
 	ListStatusHistory(ctx context.Context, propertyID uuid.UUID) ([]ListStatusHistoryRow, error)
 	ListTariffs(ctx context.Context, arg ListTariffsParams) ([]ListTariffsRow, error)
 	ListTenantContracts(ctx context.Context, tenantID uuid.UUID) ([]ListTenantContractsRow, error)
@@ -165,20 +212,43 @@ type Querier interface {
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
+	MonthReadingExists(ctx context.Context, arg MonthReadingExistsParams) (bool, error)
+	// Показания счётчиков (FR-05.5).
+	// Принятые месячные показания счётчиков объекта за месяц (источник — собственник или наниматель).
+	MonthReadings(ctx context.Context, arg MonthReadingsParams) ([]MeterReading, error)
 	// Перенести автособытие на дату и отметить выполненным (окончание договора при расторжении).
 	MoveAutoEvent(ctx context.Context, arg MoveAutoEventParams) error
+	// Ближайший срок оплаты по открытым начислениям не раньше даты и сумма к оплате на этот срок.
+	NextDueCharges(ctx context.Context, arg NextDueChargesParams) (NextDueChargesRow, error)
 	// Договоры (FR-03).
 	// Следующий номер в году (number_sequences); строка блокируется до конца транзакции.
 	NextSequenceValue(ctx context.Context, arg NextSequenceValueParams) (int32, error)
+	// Порядок погашения (05 разд. 10.3, шаги 2–3): основной долг по сроку и виду, затем пени final/manual.
+	OpenChargesForAllocation(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
 	// Не черновые договоры объекта, пересекающиеся с периодом [from, to] (05 разд. 4.4, п. 3).
 	OverlappingContracts(ctx context.Context, arg OverlappingContractsParams) ([]OverlappingContractsRow, error)
 	// Прямо изменяемые условия действующего договора (05 разд. 4.5).
 	PatchContract(ctx context.Context, arg PatchContractParams) (Contract, error)
+	// Платежи договора «за начисления» с авансом > 0 (05 разд. 10.4; аванс вычисляется, примечание к схеме 04).
+	PaymentsWithAdvance(ctx context.Context, contractID uuid.UUID) ([]PaymentsWithAdvanceRow, error)
+	// Пени
+	// Начисления, по которым могут идти пени на дату (05 разд. 7.1): rent (и utilities при penalty_on_utilities),
+	// договор с пенями не в черновике, первый день просрочки не позже вчерашнего.
+	PenaltyBases(ctx context.Context, today date.Date) ([]PenaltyBasesRow, error)
+	PenaltyOf(ctx context.Context, sourceChargeID *uuid.UUID) (Charge, error)
+	// Предыдущее принятое показание счётчика раньше даты (любого источника, включая акты), кроме указанного.
+	PrevAccepted(ctx context.Context, arg PrevAcceptedParams) (PrevAcceptedRow, error)
 	// Последнее принятое показание счётчика до даты (подсказка «предыдущее: …» в акте).
 	PreviousReading(ctx context.Context, arg PreviousReadingParams) (PreviousReadingRow, error)
+	// Последние принятые показания счётчика до даты (для правила «больше трёх средних»).
+	RecentAccepted(ctx context.Context, arg RecentAcceptedParams) ([]RecentAcceptedRow, error)
 	RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) error
 	RecordLoginSuccess(ctx context.Context, arg RecordLoginSuccessParams) error
+	// paid_kop = сумма активных распределений; статус по оплате (у отменённого не меняется).
+	RefreshChargePaid(ctx context.Context, id uuid.UUID) (Charge, error)
+	RejectReading(ctx context.Context, arg RejectReadingParams) error
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	ReverseAllocation(ctx context.Context, arg ReverseAllocationParams) error
 	RevokeConsent(ctx context.Context, arg RevokeConsentParams) (PdnConsent, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	// Отзыв всех сессий пользователя, кроме указанной (NULL — всех).
@@ -186,9 +256,11 @@ type Querier interface {
 	// Договоры для вычисляемых сроков оплаты в календаре: действующие, пересекающие диапазон.
 	ScheduleContracts(ctx context.Context, arg ScheduleContractsParams) ([]ScheduleContractsRow, error)
 	SetAutoEventDone(ctx context.Context, arg SetAutoEventDoneParams) error
+	SetChargeAmount(ctx context.Context, arg SetChargeAmountParams) error
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
 	SetEventNotes(ctx context.Context, arg SetEventNotesParams) error
 	SetNextIndexation(ctx context.Context, arg SetNextIndexationParams) error
+	SetPenaltyManual(ctx context.Context, arg SetPenaltyManualParams) error
 	SetPropertyArchived(ctx context.Context, arg SetPropertyArchivedParams) (Property, error)
 	SetPropertyPhotoSort(ctx context.Context, arg SetPropertyPhotoSortParams) error
 	SetPropertyStatus(ctx context.Context, arg SetPropertyStatusParams) error
@@ -215,6 +287,7 @@ type Querier interface {
 	UpdateFirstTerms(ctx context.Context, arg UpdateFirstTermsParams) error
 	UpdateManualEvent(ctx context.Context, arg UpdateManualEventParams) error
 	UpdateMeter(ctx context.Context, arg UpdateMeterParams) (Meter, error)
+	UpdatePenalty(ctx context.Context, arg UpdatePenaltyParams) error
 	UpdateProperty(ctx context.Context, arg UpdatePropertyParams) (Property, error)
 	UpdateTenant(ctx context.Context, arg UpdateTenantParams) (Tenant, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)

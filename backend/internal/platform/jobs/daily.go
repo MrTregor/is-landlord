@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
@@ -23,9 +24,12 @@ const (
 
 // DailyArgs — аргументы ежедневной задачи: бизнес-дата и способ запуска.
 // Уникальность — по (kind, businessDate) (07 Фоновые задачи, общие правила).
+// Ручной запуск передаёт RunID — заранее созданную строку job_runs (её id возвращает API), и не схлопывается
+// с плановым запуском того же дня.
 type DailyArgs struct {
-	BusinessDate date.Date `json:"businessDate" river:"unique"`
-	Trigger      string    `json:"trigger"`
+	BusinessDate date.Date  `json:"businessDate" river:"unique"`
+	Trigger      string     `json:"trigger"`
+	RunID        *uuid.UUID `json:"runId,omitempty" river:"unique"`
 }
 
 // Daily — описание ежедневной задачи: имя (= kind River), время запуска по Москве и конструктор аргументов.
@@ -130,9 +134,14 @@ func RunDaily(ctx context.Context, database *db.DB, clk clock.Clock, name string
 		trigger = TriggerSchedule
 	}
 	q := database.Queries()
-	runID, err := q.StartJobRun(ctx, sqlc.StartJobRunParams{JobName: name, BusinessDate: args.BusinessDate, Trigger: trigger, Now: clk.Now()})
-	if err != nil {
-		return nil, err
+	var runID uuid.UUID
+	if args.RunID != nil {
+		runID = *args.RunID
+	} else {
+		var err error
+		if runID, err = q.StartJobRun(ctx, sqlc.StartJobRunParams{JobName: name, BusinessDate: args.BusinessDate, Trigger: trigger, Now: clk.Now()}); err != nil {
+			return nil, err
+		}
 	}
 	stats := NewStats()
 	runErr := fn(ctx, stats)

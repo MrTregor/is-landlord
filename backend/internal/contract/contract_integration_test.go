@@ -198,11 +198,15 @@ func TestContractDraftAndActivate_FR03_1_FR03_3_FR09_1(t *testing.T) {
 	ev := w.events(t, "2026-09-01", "2026-11-30")
 	k := kinds(ev)
 	assert.Equal(t, 1, k["registration"], "регистрация: дата подписания + 7 дней")
-	assert.Equal(t, 3, k["payment_due"], "сроки 15.09, 15.10, 15.11 — прогноз")
+	assert.Equal(t, 3, k["payment_due"], "сроки 15.09, 15.10 — по начислениям, 15.11 — прогноз")
+	assert.Equal(t, 2, k["overdue"], "сентябрь и октябрь не оплачены")
 	for _, e := range ev {
 		if e.Kind == "payment_due" && e.Date == "2026-09-15" {
 			require.NotNil(t, e.AmountKop)
 			assert.Equal(t, int64(1706667), *e.AmountKop, "32 000 × 16 / 30")
+			assert.False(t, e.Forecast)
+		}
+		if e.Kind == "payment_due" && e.Date == "2026-11-15" {
 			assert.True(t, e.Forecast)
 		}
 		if e.Kind == "registration" {
