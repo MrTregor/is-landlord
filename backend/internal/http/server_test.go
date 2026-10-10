@@ -104,7 +104,7 @@ func TestReadyz(t *testing.T) {
 // Заглушки этапа M0: каждый описанный в API метод отвечает 501 в формате problem+json.
 func TestStubsReturnNotImplemented(t *testing.T) {
 	h := newTestServer(nil, nil).Handler()
-	for _, path := range []string{"/api/v1/charges", "/api/v1/dashboard", "/api/v1/cabinet/summary"} {
+	for _, path := range []string{"/api/v1/payments", "/api/v1/dashboard", "/api/v1/cabinet/summary"} {
 		rec := doAs(t, h, http.MethodGet, path, sessionFor(path), "")
 		assert.Equal(t, http.StatusNotImplemented, rec.Code, path)
 		assert.Equal(t, "application/problem+json; charset=utf-8", rec.Header().Get("Content-Type"))
