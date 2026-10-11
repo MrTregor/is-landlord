@@ -234,7 +234,7 @@ func TestDocumentsOnActivationActsAmendments_FR04_1(t *testing.T) {
 	require.NotNil(t, act.DocumentID, "PDF акта сформирован при подписании")
 	html := last(w.env)
 	assert.Contains(t, html, "Акт приёма-передачи помещения")
-	assert.Contains(t, html, "к договору найма жилого помещения №")
+	assert.Contains(t, html, "к договору найма жилого помещения №", "вид договора после «к» — в дательном падеже")
 	assert.Contains(t, html, "<td>Холодильник Atlant</td>")
 	assert.Contains(t, html, "<td>Холодная вода</td><td>123456</td><td class=\"num\">15,5</td>")
 	assert.Contains(t, html, "Передано ключей: 2 шт.")
@@ -269,7 +269,8 @@ func TestDocumentsOnActivationActsAmendments_FR04_1(t *testing.T) {
 	assert.Equal(t, amDoc.ID, *ams[0].DocumentID)
 }
 
-// Акт сверки: начисления, оплаты, сальдо на начало и конец, номер АС-ГГГГ-NNN (09 разд. 4.6, FR-04.1).
+// Акт сверки: начисления, проведённые оплаты, возвраты и переносы переплаты в залог, удержания из залога,
+// сальдо на начало и конец, остаток залога, номер АС-ГГГГ-NNN (09 разд. 4.6; open-questions № 37; FR-04.1).
 func TestReconciliationAct_FR04_1(t *testing.T) {
 	w := setup(t, "c3")
 	w.meter(t)
@@ -278,9 +279,25 @@ func TestReconciliationAct_FR04_1(t *testing.T) {
 		map[string]any{"from": "2026-09-01", "to": "2026-10-31"}).Status, "черновик")
 	w.activate(t, id)
 	ctx := context.Background()
-	_, err := testsupport.Owner(t).Exec(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source,
-		status, receipt_number) VALUES ($1, 'charges', 3000000, '2026-09-01', 'cash', 'manual', 'succeeded', 'КВ-2026-00001'),
-		($1, 'charges', 1000000, '2026-10-10', 'cash', 'manual', 'succeeded', 'КВ-2026-00002')`, id)
+	conn := testsupport.Owner(t)
+	var pay1 string
+	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source,
+		status, receipt_number) VALUES ($1, 'charges', 3000000, '2026-09-01', 'cash', 'manual', 'succeeded', 'КВ-2026-00001')
+		RETURNING id`, id).Scan(&pay1))
+	_, err := conn.Exec(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source, status,
+		receipt_number, cancelled_at, cancel_reason) VALUES
+		($1, 'charges', 1000000, '2026-10-10', 'cash', 'manual', 'succeeded', 'КВ-2026-00002', NULL, NULL),
+		($1, 'charges', 700000, '2026-10-12', 'cash', 'manual', 'cancelled', 'КВ-2026-00009', now(), 'Ошибка ввода')`, id)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, method, source, status)
+		VALUES ($1, 'charges', 500000, 'online', 'online', 'pending')`, id)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `INSERT INTO deposit_transactions (contract_id, kind, amount_kop, op_date, reason, payment_id,
+		from_advance, cancelled_at, cancel_reason) VALUES
+		($1, 'receipt', 2800000, '2026-09-01', NULL, NULL, false, NULL, NULL),
+		($1, 'receipt', 200000, '2026-10-20', NULL, $2, true, NULL, NULL),
+		($1, 'withholding', 300000, '2026-10-25', 'Ремонт двери', NULL, false, NULL, NULL),
+		($1, 'withholding', 100000, '2026-10-26', 'Отменённое удержание', NULL, false, now(), 'Ошибка')`, id, pay1)
 	require.NoError(t, err)
 
 	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/reconciliation-act", map[string]any{"from": "2026-10-01", "to": "2026-10-31"})
@@ -291,14 +308,59 @@ func TestReconciliationAct_FR04_1(t *testing.T) {
 	html := last(w.env)
 	// Сентябрь: начислено 28 000, оплачено 30 000 → переплата 2 000 на 01.10.
 	assert.Contains(t, html, "Сальдо на 01.10.2026: переплата Нанимателя 2 000,00 руб.")
+	assert.Contains(t, html, "по договору найма жилого помещения №", "вид договора после «по» — в дательном падеже")
 	assert.Contains(t, html, "Плата за наём, октябрь 2026")
 	assert.Contains(t, html, "Оплата, квитанция КВ-2026-00002")
-	// Октябрь: +28 000 − 10 000 → задолженность 16 000.
-	assert.Contains(t, html, "Сальдо на 31.10.2026: задолженность Нанимателя 16 000,00 руб.")
+	assert.Contains(t, html, "<td>20.10.2026</td><td>Перенос переплаты в обеспечительный платёж</td><td class=\"num\">2 000,00</td><td class=\"num\"></td>")
+	assert.Contains(t, html, "<td>Удержание из обеспечительного платежа: Ремонт двери</td><td class=\"num\">3 000,00</td><td class=\"num\">3 000,00</td>")
+	assert.NotContains(t, html, "Отменённое удержание")
+	assert.NotContains(t, html, "КВ-2026-00009", "отменённый платёж не попадает")
+	assert.NotContains(t, html, "5 000,00", "незавершённая онлайн-оплата не попадает")
 	assert.NotContains(t, html, "КВ-2026-00001", "платёж до периода — только в сальдо")
+	// Октябрь: −2 000 + 28 000 + 2 000 (перенос) − 10 000 → задолженность 18 000; удержание сальдо не меняет.
+	assert.Contains(t, html, "Сальдо на 31.10.2026: задолженность Нанимателя 18 000,00 руб.")
+	// Залог: 28 000 + 2 000 − 3 000 = 27 000.
+	assert.Contains(t, html, "Остаток обеспечительного платежа на 31.10.2026: 27 000,00 руб.")
 
 	r = w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/reconciliation-act", map[string]any{"from": "2026-10-31", "to": "2026-10-01"})
 	assert.Equal(t, http.StatusUnprocessableEntity, r.Status)
+}
+
+// Вид договора: после «к» и «по» — contract.title_dative, в квитанции — contract.title в именительном падеже
+// (open-questions № 34, FR-04.1).
+func TestSystemTemplatesTitleCase_FR04_1(t *testing.T) {
+	w := setup(t, "g7")
+	body := func(kind string) string {
+		var tpl tplDetail
+		r := w.c.Do(http.MethodGet, "/settings/document-templates/"+kind, nil)
+		require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+		r.JSON(t, &tpl)
+		return tpl.Active.BodyHTML
+	}
+	for _, k := range []string{"act_handover", "act_return", "amendment", "reconciliation_act"} {
+		b := body(k)
+		assert.Contains(t, b, "{{contract.title_dative}}", k)
+		assert.NotContains(t, b, "{{contract.title}}", k)
+	}
+	assert.Contains(t, body("reconciliation_act"), "{{recon.deposit_text}}")
+	receipt := body("payment_receipt")
+	assert.Contains(t, receipt, "<b>Основание:</b> {{contract.title}} №")
+
+	r := w.c.Do(http.MethodPost, "/settings/document-templates/payment_receipt/preview", map[string]any{"bodyHtml": receipt})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	assert.Contains(t, last(w.env), "<b>Основание:</b> договор найма жилого помещения №")
+
+	var vars struct {
+		Documents map[string][]struct {
+			Key string `json:"key"`
+		} `json:"documents"`
+	}
+	w.c.Do(http.MethodGet, "/settings/template-variables", nil).JSON(t, &vars)
+	keys := map[string]bool{}
+	for _, v := range vars.Documents["contract_ch35"] {
+		keys[v.Key] = true
+	}
+	assert.True(t, keys["contract.title"] && keys["contract.title_dative"], "обе переменные — в «Вставить поле»")
 }
 
 // Бланк согласия на обработку ПДн — только физлицо, документ полностью (09 разд. 4.7, NFR-Sec-04).

@@ -93,7 +93,8 @@ WHERE contract_id = @contract_id AND status <> 'cancelled'
 ORDER BY on_date, created_at, id;
 
 -- name: ReconciliationPayments :many
--- Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода.
+-- Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода. Только status = succeeded:
+-- отменённые и незавершённые онлайн-оплаты в акт не попадают.
 SELECT id, method, received_on::date AS on_date, receipt_number, amount_kop
 FROM payments
 WHERE contract_id = @contract_id AND purpose = 'charges' AND status = 'succeeded' AND received_on <= @period_to::date
@@ -105,6 +106,20 @@ SELECT r.id, r.refunded_on AS on_date, r.amount_kop
 FROM refunds r JOIN payments p ON p.id = r.payment_id
 WHERE p.contract_id = @contract_id AND r.refunded_on <= @period_to::date
 ORDER BY r.refunded_on, r.created_at, r.id;
+
+-- name: ReconciliationAdvanceTransfers :many
+-- Переносы переплаты в обеспечительный платёж (неотменённые): уменьшают аванс так же, как возврат (04, формула аванса).
+SELECT id, op_date AS on_date, amount_kop
+FROM deposit_transactions
+WHERE contract_id = @contract_id AND kind = 'receipt' AND from_advance AND cancelled_at IS NULL
+  AND op_date <= @period_to::date
+ORDER BY op_date, created_at, id;
+
+-- name: DepositBalanceOn :one
+-- Остаток обеспечительного платежа на дату: внесения минус удержания, зачёты и возвраты (без отменённых).
+SELECT COALESCE(sum(CASE WHEN kind = 'receipt' THEN amount_kop ELSE -amount_kop END), 0)::bigint AS balance_kop
+FROM deposit_transactions
+WHERE contract_id = @contract_id AND cancelled_at IS NULL AND op_date <= @on_date::date;
 
 -- name: ReconciliationWithholdings :many
 -- Удержания из залога (неотменённые).

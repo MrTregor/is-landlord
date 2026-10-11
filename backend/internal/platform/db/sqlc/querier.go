@@ -109,6 +109,8 @@ type Querier interface {
 	DeleteStatusHistory(ctx context.Context, id uuid.UUID) error
 	DeleteTariff(ctx context.Context, id uuid.UUID) error
 	DeleteTerms(ctx context.Context, contractID uuid.UUID) error
+	// Остаток обеспечительного платежа на дату: внесения минус удержания, зачёты и возвраты (без отменённых).
+	DepositBalanceOn(ctx context.Context, arg DepositBalanceOnParams) (int64, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
 	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
 	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
@@ -257,9 +259,12 @@ type Querier interface {
 	PreviousReading(ctx context.Context, arg PreviousReadingParams) (PreviousReadingRow, error)
 	// Последние принятые показания счётчика до даты (для правила «больше трёх средних»).
 	RecentAccepted(ctx context.Context, arg RecentAcceptedParams) ([]RecentAcceptedRow, error)
+	// Переносы переплаты в обеспечительный платёж (неотменённые): уменьшают аванс так же, как возврат (04, формула аванса).
+	ReconciliationAdvanceTransfers(ctx context.Context, arg ReconciliationAdvanceTransfersParams) ([]ReconciliationAdvanceTransfersRow, error)
 	// Начисления акта сверки (09 разд. 4.6): без отменённых; начисляемые пени — на дату конца периода.
 	ReconciliationCharges(ctx context.Context, arg ReconciliationChargesParams) ([]ReconciliationChargesRow, error)
-	// Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода.
+	// Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода. Только status = succeeded:
+	// отменённые и незавершённые онлайн-оплаты в акт не попадают.
 	ReconciliationPayments(ctx context.Context, arg ReconciliationPaymentsParams) ([]ReconciliationPaymentsRow, error)
 	// Возвраты переплаты по платежам договора.
 	ReconciliationRefunds(ctx context.Context, arg ReconciliationRefundsParams) ([]ReconciliationRefundsRow, error)

@@ -5,6 +5,7 @@ package db_test
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"landlord/backend/internal/platform/db"
+	"landlord/backend/migrations"
 )
 
 func startPostgres(t *testing.T) string {
@@ -79,8 +81,10 @@ func TestMigrateUpDownUp_NFR_Maint_02(t *testing.T) {
 	conn.Close(ctx)
 
 	// Откат по одной миграции: после последней схема пуста, таблицы River тоже удалены.
-	// Миграции данных (0002 — письма, 0003 — шаблоны документов) откатываются без удаления схемы.
-	for range 2 {
+	// Миграции данных (0002 и далее) откатываются без удаления схемы; последней откатывается 0001.
+	files, err := fs.Glob(migrations.FS, "*.sql")
+	require.NoError(t, err)
+	for range len(files) - 1 {
 		require.NoError(t, m.Down(ctx))
 		assert.Equal(t, 4, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
 	}

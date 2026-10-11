@@ -783,6 +783,13 @@ type Tenant struct {
 	UpdatedAt    time.Time
 }
 
+type TplDative struct {
+	ID       uuid.UUID
+	Kind     string
+	Name     string
+	BodyHtml string
+}
+
 // Учётные записи собственников и нанимателей
 type User struct {
 	ID    uuid.UUID

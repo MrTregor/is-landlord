@@ -114,6 +114,25 @@ func (q *Queries) DeactivateTemplates(ctx context.Context, kind string) error {
 	return err
 }
 
+const depositBalanceOn = `-- name: DepositBalanceOn :one
+SELECT COALESCE(sum(CASE WHEN kind = 'receipt' THEN amount_kop ELSE -amount_kop END), 0)::bigint AS balance_kop
+FROM deposit_transactions
+WHERE contract_id = $1 AND cancelled_at IS NULL AND op_date <= $2::date
+`
+
+type DepositBalanceOnParams struct {
+	ContractID uuid.UUID
+	OnDate     date.Date
+}
+
+// Остаток обеспечительного платежа на дату: внесения минус удержания, зачёты и возвраты (без отменённых).
+func (q *Queries) DepositBalanceOn(ctx context.Context, arg DepositBalanceOnParams) (int64, error) {
+	row := q.db.QueryRow(ctx, depositBalanceOn, arg.ContractID, arg.OnDate)
+	var balance_kop int64
+	err := row.Scan(&balance_kop)
+	return balance_kop, err
+}
+
 const getDocument = `-- name: GetDocument :one
 SELECT id, kind, number, title, contract_id, tenant_id, payment_id, amendment_id, act_id, template_id, file_id, html_snapshot, data_snapshot, period_from, period_to, visible_to_tenant, signed_scan_file_id, superseded_by, created_by, created_at FROM documents WHERE id = $1
 `
@@ -423,6 +442,46 @@ func (q *Queries) LockTemplateKind(ctx context.Context, kind string) ([]uuid.UUI
 	return items, nil
 }
 
+const reconciliationAdvanceTransfers = `-- name: ReconciliationAdvanceTransfers :many
+SELECT id, op_date AS on_date, amount_kop
+FROM deposit_transactions
+WHERE contract_id = $1 AND kind = 'receipt' AND from_advance AND cancelled_at IS NULL
+  AND op_date <= $2::date
+ORDER BY op_date, created_at, id
+`
+
+type ReconciliationAdvanceTransfersParams struct {
+	ContractID uuid.UUID
+	PeriodTo   date.Date
+}
+
+type ReconciliationAdvanceTransfersRow struct {
+	ID        uuid.UUID
+	OnDate    date.Date
+	AmountKop int64
+}
+
+// Переносы переплаты в обеспечительный платёж (неотменённые): уменьшают аванс так же, как возврат (04, формула аванса).
+func (q *Queries) ReconciliationAdvanceTransfers(ctx context.Context, arg ReconciliationAdvanceTransfersParams) ([]ReconciliationAdvanceTransfersRow, error) {
+	rows, err := q.db.Query(ctx, reconciliationAdvanceTransfers, arg.ContractID, arg.PeriodTo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ReconciliationAdvanceTransfersRow{}
+	for rows.Next() {
+		var i ReconciliationAdvanceTransfersRow
+		if err := rows.Scan(&i.ID, &i.OnDate, &i.AmountKop); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reconciliationCharges = `-- name: ReconciliationCharges :many
 SELECT id, kind, title, COALESCE(due_date, $1::date)::date AS on_date, amount_kop
 FROM charges
@@ -491,7 +550,8 @@ type ReconciliationPaymentsRow struct {
 	AmountKop     int64
 }
 
-// Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода.
+// Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода. Только status = succeeded:
+// отменённые и незавершённые онлайн-оплаты в акт не попадают.
 func (q *Queries) ReconciliationPayments(ctx context.Context, arg ReconciliationPaymentsParams) ([]ReconciliationPaymentsRow, error) {
 	rows, err := q.db.Query(ctx, reconciliationPayments, arg.ContractID, arg.PeriodTo)
 	if err != nil {

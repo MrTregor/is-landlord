@@ -269,6 +269,7 @@ func (s *Service) contractData(ctx context.Context, q *sqlc.Queries, cc contract
 	v := d.Vars
 	v["contract.number"] = c.Number
 	v["contract.title"] = contractTitle(c.LegalBasis)
+	v["contract.title_dative"] = contractTitleDative(c.LegalBasis)
 	v["contract.concluded_on"] = fmtDate(c.ConcludedOn)
 	v["contract.concluded_on_words"] = fmtDateWords(c.ConcludedOn)
 	v["contract.start_date"], v["contract.end_date"] = c.StartDate.Format(), c.EndDate.Format()
@@ -402,8 +403,10 @@ func amendmentData(d Data, cc contractCtx, a sqlc.ContractAmendment) {
 	v["amendment.changes_text"] = strings.Join(changes, "\n")
 }
 
-// reconData — акт сверки за период (09 разд. 4.6): начисления по сроку, платежи по дате поступления,
-// возвраты переплаты и удержания из залога; сальдо — начислено минус оплачено.
+// reconData — акт сверки за период (09 разд. 4.6; docs/open-questions.md, № 37).
+// Начислено: начисления по сроку (без отменённых), возвраты и переносы переплаты в залог.
+// Оплачено: проведённые платежи по дате поступления. Удержание из залога — в обеих колонках (на сальдо не влияет).
+// Сальдо — начислено минус оплачено. Сам залог (внесение, возврат) — отдельный учёт: только строка остатка.
 func reconData(ctx context.Context, q *sqlc.Queries, d Data, cc contractCtx, number string, from, to date.Date) error {
 	type item struct {
 		on            date.Date
@@ -440,6 +443,13 @@ func reconData(ctx context.Context, q *sqlc.Queries, d Data, cc contractCtx, num
 	for _, r := range refunds {
 		items = append(items, item{r.OnDate, 2, "Возврат переплаты", r.AmountKop, 0})
 	}
+	transfers, err := q.ReconciliationAdvanceTransfers(ctx, sqlc.ReconciliationAdvanceTransfersParams{ContractID: cc.c.ID, PeriodTo: to})
+	if err != nil {
+		return err
+	}
+	for _, tr := range transfers {
+		items = append(items, item{tr.OnDate, 2, "Перенос переплаты в обеспечительный платёж", tr.AmountKop, 0})
+	}
 	holds, err := q.ReconciliationWithholdings(ctx, sqlc.ReconciliationWithholdingsParams{ContractID: cc.c.ID, PeriodTo: to})
 	if err != nil {
 		return err
@@ -472,6 +482,11 @@ func reconData(ctx context.Context, q *sqlc.Queries, d Data, cc contractCtx, num
 	v["recon.period_from"], v["recon.period_to"] = from.Format(), to.Format()
 	v["recon.opening_text"] = saldoText(from, cc.basis, opening)
 	v["recon.closing_text"] = saldoText(to, cc.basis, opening+turnover)
+	deposit, err := q.DepositBalanceOn(ctx, sqlc.DepositBalanceOnParams{ContractID: cc.c.ID, OnDate: to})
+	if err != nil {
+		return err
+	}
+	v["recon.deposit_text"] = fmt.Sprintf("Остаток обеспечительного платежа на %s: %s.", to.Format(), money.Kop(deposit).FormatRub())
 	d.Blocks["reconciliation"] = reconBlock(rows)
 	return nil
 }

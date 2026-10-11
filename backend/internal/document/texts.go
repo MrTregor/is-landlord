@@ -221,9 +221,17 @@ func landlordGen(basis string) string {
 	return "Наймодателя"
 }
 
-// contractTitle — вид договора в дательном падеже: «к договору найма жилого помещения № …»
-// (docs/open-questions.md: в шаблонах переменная стоит после «к» и «по»).
+// contractTitle — вид договора в именительном падеже: «Основание: договор найма жилого помещения № …» (09 разд. 4.2).
 func contractTitle(basis string) string {
+	if basis == "ch34" {
+		return "договор аренды"
+	}
+	return "договор найма жилого помещения"
+}
+
+// contractTitleDative — вид договора в дательном падеже: «к договору найма жилого помещения № …», «по договору аренды»
+// (docs/open-questions.md, № 34).
+func contractTitleDative(basis string) string {
 	if basis == "ch34" {
 		return "договору аренды"
 	}
