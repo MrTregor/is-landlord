@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -98,6 +99,36 @@ type Env struct {
 	App    *app.App
 	Clock  *clock.Fixed
 	Server *httptest.Server
+	// PDF — подделка Gotenberg: запоминает HTML сформированных документов.
+	PDF *FakePDF
+}
+
+// FakePDF — конвертер HTML → PDF для тестов: возвращает минимальный PDF и хранит HTML последних документов.
+type FakePDF struct {
+	mu    sync.Mutex
+	HTML  []string
+	Error error
+}
+
+// Convert реализует pdf.Converter.
+func (f *FakePDF) Convert(_ context.Context, html string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Error != nil {
+		return nil, f.Error
+	}
+	f.HTML = append(f.HTML, html)
+	return []byte(fmt.Sprintf("%%PDF-1.4 тест %d %%%%EOF", len(f.HTML))), nil
+}
+
+// Last — HTML последнего сформированного документа.
+func (f *FakePDF) Last() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.HTML) == 0 {
+		return ""
+	}
+	return f.HTML[len(f.HTML)-1]
 }
 
 // Moscow — часовой пояс бизнес-дат.
@@ -125,13 +156,14 @@ func NewEnv(t testing.TB, today string) *Env {
 	t.Cleanup(database.Close)
 	clk := clock.NewFixedDate(date.MustParse(today), Moscow())
 	log := slog.New(slog.NewTextHandler(tWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	a, err := app.New(cfg, log, clk, database, app.Options{Argon: &FastArgon})
+	fake := &FakePDF{}
+	a, err := app.New(cfg, log, clk, database, app.Options{Argon: &FastArgon, PDF: fake})
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(a.Server(okGotenberg{}).Handler())
 	t.Cleanup(srv.Close)
-	return &Env{App: a, Clock: clk, Server: srv}
+	return &Env{App: a, Clock: clk, Server: srv, PDF: fake}
 }
 
 type okGotenberg struct{}

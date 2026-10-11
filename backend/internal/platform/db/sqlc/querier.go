@@ -23,6 +23,9 @@ type Querier interface {
 	ActiveAllocations(ctx context.Context, chargeID uuid.UUID) ([]ActiveAllocationsRow, error)
 	ActiveOwnerUsers(ctx context.Context) ([]ActiveOwnerUsersRow, error)
 	ActivePropertyMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
+	ActiveTemplate(ctx context.Context, kind string) (DocumentTemplate, error)
+	// Шаблоны документов и документы (FR-04, docs/spec/09 Документы и шаблоны.md).
+	ActiveTemplates(ctx context.Context) ([]ActiveTemplatesRow, error)
 	AddPropertyPhoto(ctx context.Context, arg AddPropertyPhotoParams) (PropertyPhoto, error)
 	AllTariffs(ctx context.Context) ([]Tariff, error)
 	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
@@ -41,6 +44,8 @@ type Querier interface {
 	ContractBalances(ctx context.Context, arg ContractBalancesParams) ([]ContractBalancesRow, error)
 	// Неотменённые начисления договора (пересчёт при допсоглашении и расторжении).
 	ContractChargesForUpdate(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
+	// Сформирован ли документ договора не раньше момента since (05 разд. 4.4, п. 7).
+	ContractDocumentSince(ctx context.Context, arg ContractDocumentSinceParams) (bool, error)
 	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
 	ContractForPropertyMonth(ctx context.Context, arg ContractForPropertyMonthParams) (Contract, error)
 	// Месяцы, за которые у договоров есть начисления платы (чтобы не показывать прогноз для них).
@@ -87,6 +92,7 @@ type Querier interface {
 	// Текущие договоры объектов (действует на дату): номер, наниматель, срок.
 	CurrentContracts(ctx context.Context, arg CurrentContractsParams) ([]CurrentContractsRow, error)
 	CurrentStatusRow(ctx context.Context, propertyID uuid.UUID) (PropertyStatusHistory, error)
+	DeactivateTemplates(ctx context.Context, kind string) error
 	DebtByProperty(ctx context.Context, ids []uuid.UUID) ([]DebtByPropertyRow, error)
 	DebtByTenant(ctx context.Context, ids []uuid.UUID) ([]DebtByTenantRow, error)
 	DeleteActReadings(ctx context.Context, actID *uuid.UUID) error
@@ -124,6 +130,7 @@ type Querier interface {
 	// Служебные запросы.
 	// Сдвиг даты системы в демонстрационном режиме (03 Архитектура, «Время и часовой пояс»).
 	GetDemoClockOffset(ctx context.Context) (int64, error)
+	GetDocument(ctx context.Context, id uuid.UUID) (Document, error)
 	GetEmailLog(ctx context.Context, id uuid.UUID) (EmailLog, error)
 	// Письма (FR-10).
 	GetEmailTemplate(ctx context.Context, code string) (EmailTemplate, error)
@@ -139,6 +146,8 @@ type Querier interface {
 	GetReadingForUpdate(ctx context.Context, id uuid.UUID) (MeterReading, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
 	GetTariff(ctx context.Context, id uuid.UUID) (Tariff, error)
+	GetTemplate(ctx context.Context, id uuid.UUID) (DocumentTemplate, error)
+	GetTemplateVersion(ctx context.Context, arg GetTemplateVersionParams) (GetTemplateVersionRow, error)
 	GetTenant(ctx context.Context, id uuid.UUID) (Tenant, error)
 	GetTenantForUpdate(ctx context.Context, id uuid.UUID) (Tenant, error)
 	// Пользователи (FR-14.1).
@@ -158,6 +167,7 @@ type Querier interface {
 	// Автоначисление; повтор с тем же idempotency_key ничего не создаёт (нет строк в ответе).
 	InsertAutoCharge(ctx context.Context, arg InsertAutoChargeParams) (uuid.UUID, error)
 	InsertConsent(ctx context.Context, arg InsertConsentParams) (PdnConsent, error)
+	InsertDocument(ctx context.Context, arg InsertDocumentParams) (Document, error)
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
 	// Файлы (06 API, раздел 6).
 	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
@@ -168,11 +178,13 @@ type Querier interface {
 	InsertOccupant(ctx context.Context, arg InsertOccupantParams) error
 	InsertOwnerReading(ctx context.Context, arg InsertOwnerReadingParams) (uuid.UUID, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
+	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
 	// Условия и проживающие
 	InsertTerms(ctx context.Context, arg InsertTermsParams) (ContractTerm, error)
 	InvalidateAuthTokens(ctx context.Context, arg InvalidateAuthTokensParams) error
 	// Последнее принятое показание счётчика.
 	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
+	LastAmendmentDocuments(ctx context.Context, ids []uuid.UUID) ([]LastAmendmentDocumentsRow, error)
 	// Последний запуск плановой задачи.
 	LastJobRun(ctx context.Context, jobName string) (JobRun, error)
 	// Последний запуск каждой задачи.
@@ -191,6 +203,7 @@ type Querier interface {
 	// Список и сводки
 	ListCharges(ctx context.Context, arg ListChargesParams) ([]ListChargesRow, error)
 	ListConsents(ctx context.Context, tenantID uuid.UUID) ([]PdnConsent, error)
+	ListContractDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error)
 	ListContracts(ctx context.Context, arg ListContractsParams) ([]ListContractsRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
 	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
@@ -209,6 +222,8 @@ type Querier interface {
 	ListTerms(ctx context.Context, contractID uuid.UUID) ([]ContractTerm, error)
 	ListTermsForContracts(ctx context.Context, ids []uuid.UUID) ([]ContractTerm, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	// Блокировка версий вида на время сохранения новой версии.
+	LockTemplateKind(ctx context.Context, kind string) ([]uuid.UUID, error)
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
@@ -242,6 +257,14 @@ type Querier interface {
 	PreviousReading(ctx context.Context, arg PreviousReadingParams) (PreviousReadingRow, error)
 	// Последние принятые показания счётчика до даты (для правила «больше трёх средних»).
 	RecentAccepted(ctx context.Context, arg RecentAcceptedParams) ([]RecentAcceptedRow, error)
+	// Начисления акта сверки (09 разд. 4.6): без отменённых; начисляемые пени — на дату конца периода.
+	ReconciliationCharges(ctx context.Context, arg ReconciliationChargesParams) ([]ReconciliationChargesRow, error)
+	// Платежи в счёт начислений (в том числе зачёты залога), проведённые до конца периода.
+	ReconciliationPayments(ctx context.Context, arg ReconciliationPaymentsParams) ([]ReconciliationPaymentsRow, error)
+	// Возвраты переплаты по платежам договора.
+	ReconciliationRefunds(ctx context.Context, arg ReconciliationRefundsParams) ([]ReconciliationRefundsRow, error)
+	// Удержания из залога (неотменённые).
+	ReconciliationWithholdings(ctx context.Context, arg ReconciliationWithholdingsParams) ([]ReconciliationWithholdingsRow, error)
 	RecordLoginFailure(ctx context.Context, arg RecordLoginFailureParams) error
 	RecordLoginSuccess(ctx context.Context, arg RecordLoginSuccessParams) error
 	// paid_kop = сумма активных распределений; статус по оплате (у отменённого не меняется).
@@ -255,8 +278,11 @@ type Querier interface {
 	RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error
 	// Договоры для вычисляемых сроков оплаты в календаре: действующие, пересекающие диапазон.
 	ScheduleContracts(ctx context.Context, arg ScheduleContractsParams) ([]ScheduleContractsRow, error)
+	SetActDocument(ctx context.Context, arg SetActDocumentParams) error
 	SetAutoEventDone(ctx context.Context, arg SetAutoEventDoneParams) error
 	SetChargeAmount(ctx context.Context, arg SetChargeAmountParams) error
+	SetDocumentSignedScan(ctx context.Context, arg SetDocumentSignedScanParams) (Document, error)
+	SetDocumentVisibility(ctx context.Context, arg SetDocumentVisibilityParams) (Document, error)
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
 	SetEventNotes(ctx context.Context, arg SetEventNotesParams) error
 	SetNextIndexation(ctx context.Context, arg SetNextIndexationParams) error
@@ -274,8 +300,12 @@ type Querier interface {
 	// Статусы объекта по договору (05 разд. 4.4, 4.7, 4.8)
 	// Записи истории объекта, пересекающие дату и позже (для постановки «Сдан» с даты начала).
 	StatusHistoryFrom(ctx context.Context, arg StatusHistoryFromParams) ([]PropertyStatusHistory, error)
+	// Повторное формирование: прежние документы того же предмета получают ссылку на новый.
+	SupersedeDocuments(ctx context.Context, arg SupersedeDocumentsParams) error
+	SystemTemplate(ctx context.Context, kind string) (DocumentTemplate, error)
 	// Есть ли неотменённое начисление ЖКУ с месяцем не раньше даты тарифа по объекту, к которому тариф применим.
 	TariffInUse(ctx context.Context, arg TariffInUseParams) (bool, error)
+	TemplateVersions(ctx context.Context, kind string) ([]TemplateVersionsRow, error)
 	// Наниматель видит свои загрузки, фото своих заявок, видимые документы своих договоров (и свои согласия)
 	// и фото объектов своих договоров (12 Безопасность и ПДн, раздел 3).
 	TenantCanReadFile(ctx context.Context, arg TenantCanReadFileParams) (bool, error)

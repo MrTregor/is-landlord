@@ -284,6 +284,17 @@ export const actKindLabels: Record<S['ActKind'], string> = {
   return: 'Акт возврата',
 }
 
+export const documentKindLabels: Record<S['DocumentKind'], string> = {
+  contract_ch35: 'Договор найма жилого помещения',
+  contract_ch34: 'Договор аренды',
+  act_handover: 'Акт приёма-передачи',
+  act_return: 'Акт возврата',
+  amendment: 'Дополнительное соглашение',
+  payment_receipt: 'Квитанция об оплате',
+  reconciliation_act: 'Акт сверки',
+  pdn_consent: 'Согласие на обработку ПДн',
+}
+
 export const calendarKindLabels: Record<S['CalendarEventKind'], string> = {
   payment_due: 'Сроки оплаты',
   overdue: 'Просрочки',

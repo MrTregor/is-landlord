@@ -161,6 +161,11 @@ func (s *Service) Activate(ctx context.Context, id uuid.UUID, concludedOn date.D
 		if len(b.List) > 0 {
 			return apperr.BusinessRule(b.List[0])
 		}
+		// П. 7: документ договора формируется, если его не сформировали после последнего изменения черновика.
+		docFresh, err := s.docs.ContractDocumentFresh(ctx, tx.Q, before)
+		if err != nil {
+			return err
+		}
 		c, err = tx.Q.ActivateContract(ctx, sqlc.ActivateContractParams{
 			ID: id, ConcludedOn: &concludedOn, Now: ptr(s.clock.Now()), ActivatedBy: actorID(ctx), NextIndexationOn: before.NextIndexationOn,
 		})
@@ -186,6 +191,11 @@ func (s *Service) Activate(ctx context.Context, id uuid.UUID, concludedOn date.D
 		}
 		if err := s.createHandoverAct(ctx, tx, c); err != nil {
 			return err
+		}
+		if !docFresh {
+			if _, err := s.docs.ContractDocumentTx(ctx, tx, c.ID); err != nil {
+				return err
+			}
 		}
 		if inviteTenant {
 			if err := s.invite(ctx, tx, c.TenantID); err != nil {

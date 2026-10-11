@@ -56,6 +56,7 @@ var actionTitles = map[string]string{
 	"act.update":            "Изменение акта",
 	"act.sign":              "Подписание акта",
 	"document.generate":     "Формирование документа",
+	"document.update":       "Изменение документа",
 	"calendar.create":       "Добавление события календаря",
 	"calendar.update":       "Изменение события календаря",
 	"calendar.delete":       "Удаление события календаря",

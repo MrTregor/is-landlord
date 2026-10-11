@@ -5,6 +5,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useContract, useContractMutations, useCreateContract, type ContractDetail } from '@/api/queries/contracts'
+import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import { useProperties } from '@/api/queries/properties'
 import { useTenants } from '@/api/queries/tenants'
 import DateInput from '@/components/DateInput.vue'
@@ -13,6 +14,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { formatDate, fromIsoDate } from '@/utils/date'
 import { options, propertyStatusLabels, utilitiesModeLabels } from '@/utils/labels'
+import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
 import TenantFormPage from '@/modules/tenants/pages/TenantFormPage.vue'
 import ActivateDialog from '../components/ActivateDialog.vue'
@@ -195,6 +197,19 @@ async function saveDraft() {
   if (await persist()) {
     toast.add({ severity: 'success', summary: 'Черновик сохранён', life: 3000 })
     await router.push(`/contracts/${contractId.value}`)
+  }
+}
+
+const docs = useDocumentMutations()
+/** Сохранить черновик и открыть проект договора в новой вкладке. */
+async function projectPdf() {
+  try {
+    await openInNewTab(async () => {
+      if (!(await persist())) return null
+      return documentPdfUrl((await docs.contract.mutateAsync(contractId.value!)).id)
+    })
+  } catch (e) {
+    serverError.value = parseProblem(e).message
   }
 }
 
@@ -665,8 +680,8 @@ const steps = [
                 label="Сформировать проект договора (PDF)"
                 icon="pi pi-file-pdf"
                 outlined
-                disabled
-                title="Документы формируются с этапа M5"
+                :loading="docs.contract.isPending.value"
+                @click="projectPdf"
               />
               <Button type="button" label="Сохранить черновик" outlined :loading="saving" @click="saveDraft" />
               <Button

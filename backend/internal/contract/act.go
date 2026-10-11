@@ -326,6 +326,13 @@ func (s *Service) SignAct(ctx context.Context, id uuid.UUID, signedOn date.Date)
 				return err
 			}
 		}
+		// При подписании формируется PDF акта (05 разд. 4.10).
+		if _, err := s.docs.ActDocumentTx(ctx, tx, id); err != nil {
+			return err
+		}
+		if a, err = tx.Q.GetAct(ctx, id); err != nil {
+			return err
+		}
 		if v, err = s.actView(ctx, tx.Q, c, a); err != nil {
 			return err
 		}

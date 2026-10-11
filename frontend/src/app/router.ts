@@ -119,7 +119,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: 'Журнал действий', section: 'audit', layout: 'owner', access: 'owner' },
   },
   owner('/email-log', 'Письма', 'M10', 'email'),
-  owner('/settings/document-templates/:kind', 'Шаблон документа', 'M5', 'settings'),
+  page(
+    '/settings/document-templates/:kind',
+    'Шаблон документа',
+    'settings',
+    () => import('@/modules/settings/pages/DocumentTemplatePage.vue'),
+  ),
   owner('/settings/email-templates/:code', 'Шаблон письма', 'M10', 'settings'),
   {
     path: '/settings/:tab?',

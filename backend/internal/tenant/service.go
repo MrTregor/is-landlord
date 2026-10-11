@@ -395,6 +395,29 @@ type PDN struct {
 	DocNumber, DocIssuedBy, DivisionCode, RegAddress *string
 }
 
+// Decrypt — полные значения документа и адреса регистрации без записи в журнал:
+// для формирования документов (запись document.generate делает модуль документов).
+func (s *Service) Decrypt(t sqlc.Tenant) (PDN, error) {
+	var out PDN
+	vals := []struct {
+		dst   **string
+		field string
+		v     []byte
+	}{{&out.DocNumber, fieldDocNumber, t.DocNumberEnc}, {&out.DocIssuedBy, fieldDocIssuedBy, t.DocIssuedByEnc},
+		{&out.DivisionCode, fieldDivisionCode, t.DocDivisionCodeEnc}, {&out.RegAddress, fieldRegAddress, t.RegistrationAddressEnc}}
+	for _, v := range vals {
+		plain, err := s.decrypt(t, v.field, v.v)
+		if err != nil {
+			return out, err
+		}
+		if plain != "" {
+			p := plain
+			*v.dst = &p
+		}
+	}
+	return out, nil
+}
+
 // Reveal — полные значения по кнопке «Показать» с записью tenant.pdn_view в журнал.
 func (s *Service) Reveal(ctx context.Context, id uuid.UUID) (PDN, error) {
 	var out PDN
@@ -403,21 +426,8 @@ func (s *Service) Reveal(ctx context.Context, id uuid.UUID) (PDN, error) {
 		if err != nil {
 			return err
 		}
-		vals := []struct {
-			dst   **string
-			field string
-			v     []byte
-		}{{&out.DocNumber, fieldDocNumber, t.DocNumberEnc}, {&out.DocIssuedBy, fieldDocIssuedBy, t.DocIssuedByEnc},
-			{&out.DivisionCode, fieldDivisionCode, t.DocDivisionCodeEnc}, {&out.RegAddress, fieldRegAddress, t.RegistrationAddressEnc}}
-		for _, v := range vals {
-			plain, err := s.decrypt(t, v.field, v.v)
-			if err != nil {
-				return err
-			}
-			if plain != "" {
-				p := plain
-				*v.dst = &p
-			}
+		if out, err = s.Decrypt(t); err != nil {
+			return err
 		}
 		return s.audit.Record(ctx, tx.Q, audit.Entry{
 			Action: "tenant.pdn_view", EntityType: "tenant", EntityID: id.String(),

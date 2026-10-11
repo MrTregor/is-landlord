@@ -79,8 +79,11 @@ func TestMigrateUpDownUp_NFR_Maint_02(t *testing.T) {
 	conn.Close(ctx)
 
 	// Откат по одной миграции: после последней схема пуста, таблицы River тоже удалены.
-	require.NoError(t, m.Down(ctx))
-	assert.Equal(t, 4, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
+	// Миграции данных (0002 — письма, 0003 — шаблоны документов) откатываются без удаления схемы.
+	for range 2 {
+		require.NoError(t, m.Down(ctx))
+		assert.Equal(t, 4, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
+	}
 	require.NoError(t, m.Down(ctx))
 	assert.Equal(t, 0, countTables(t, url, "contracts", "charges", "audit_log", "river_job"))
 

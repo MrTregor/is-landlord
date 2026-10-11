@@ -3,15 +3,29 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { fetchActs, useContractMutations, useContractSub, type Act, type ContractDetail } from '@/api/queries/contracts'
+import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import DateInput from '@/components/DateInput.vue'
 import { formatDate, toIsoDate } from '@/utils/date'
 import { actKindLabels, meterTypeLabels } from '@/utils/labels'
+import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
 
 const props = defineProps<{ contract: ContractDetail; returnSignal: number }>()
 const toast = useToast()
 const acts = useContractSub(() => props.contract.id, 'acts', fetchActs)
 const m = useContractMutations(() => props.contract.id)
+const docs = useDocumentMutations()
+
+/** PDF акта: у подписанного — сформированный при подписании, у черновика — формируется заново. */
+async function actPdf(a: Act) {
+  try {
+    await openInNewTab(async () =>
+      a.signed && a.documentId ? documentPdfUrl(a.documentId) : documentPdfUrl((await docs.act.mutateAsync(a.id)).id),
+    )
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: parseProblem(err).message, life: 6000 })
+  }
+}
 
 const handover = computed(() => acts.data.value?.find((a) => a.kind === 'handover') ?? null)
 const ret = computed(() => acts.data.value?.find((a) => a.kind === 'return') ?? null)
@@ -193,7 +207,7 @@ const filled = (a: Act) => a.readings.filter((r) => r.value != null).length
           <div class="actions actions--start">
             <Button v-if="!a.signed" label="Заполнить" icon="pi pi-pencil" @click="openEditor(a)" />
             <Button v-else label="Открыть" icon="pi pi-eye" outlined @click="openEditor(a)" />
-            <Button label="PDF" icon="pi pi-file-pdf" outlined disabled title="Документы формируются с этапа M5" />
+            <Button label="PDF" icon="pi pi-file-pdf" outlined :loading="docs.act.isPending.value" @click="actPdf(a)" />
             <Button v-if="!a.signed" label="Подписан" icon="pi pi-check" outlined @click="openSign(a)" />
           </div>
         </template>

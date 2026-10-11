@@ -113,6 +113,9 @@ func (r Response) write(w http.ResponseWriter) error {
 // VisitGetFileResponse реализует ответ GET /files/{id}.
 func (r Response) VisitGetFileResponse(w http.ResponseWriter) error { return r.write(w) }
 
+// VisitGetDocumentPdfResponse реализует ответ GET /documents/{id}/pdf.
+func (r Response) VisitGetDocumentPdfResponse(w http.ResponseWriter) error { return r.write(w) }
+
 // DTO — файл для API.
 func DTO(f sqlc.File) api.FileDTO {
 	return api.FileDTO{Id: f.ID, Name: f.OriginalName, ContentType: f.ContentType, SizeBytes: f.SizeBytes, Url: URL(f.ID)}

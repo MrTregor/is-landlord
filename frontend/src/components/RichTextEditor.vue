@@ -1,17 +1,21 @@
 <script setup lang="ts">
 // Редактор HTML на TipTap (13 Фронтенд, «Редактор шаблонов»): заголовки, начертание, выравнивание, списки, таблицы.
+// document — шаблон документа: сохраняются классы и служебные блоки разметки; readonly — только просмотр.
 import { onBeforeUnmount, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import TextAlign from '@tiptap/extension-text-align'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { KeepClass, RawBlock } from './richTextExtensions'
 
 const model = defineModel<string>({ required: true })
-defineProps<{ labelledBy?: string }>()
+const props = defineProps<{ labelledBy?: string; document?: boolean; readonly?: boolean }>()
 
 const editor = useEditor({
   content: model.value,
+  editable: !props.readonly,
   extensions: [
+    ...(props.document ? [KeepClass, RawBlock] : []),
     StarterKit.configure({ link: false }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Table.configure({ resizable: false }),
@@ -24,6 +28,11 @@ const editor = useEditor({
   },
 })
 
+watch(
+  () => props.readonly,
+  (ro) => editor.value?.setEditable(!ro),
+)
+
 watch(model, (value) => {
   if (editor.value && value !== editor.value.getHTML()) editor.value.commands.setContent(value, { emitUpdate: false })
 })
@@ -33,7 +42,7 @@ onBeforeUnmount(() => editor.value?.destroy())
 
 <template>
   <div class="rte">
-    <div v-if="editor" class="rte__toolbar" role="toolbar" aria-label="Форматирование">
+    <div v-if="editor && !readonly" class="rte__toolbar" role="toolbar" aria-label="Форматирование">
       <Button
         text
         size="small"
@@ -147,6 +156,21 @@ onBeforeUnmount(() => editor.value?.destroy())
 }
 .rte__content :deep(table) {
   border-collapse: collapse;
+}
+.rte__content :deep(.rte__raw) {
+  border: 1px dashed var(--p-content-border-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 4px 0;
+  color: var(--p-text-muted-color);
+  cursor: default;
+}
+.rte__content :deep(.rte__raw.place-date) {
+  display: flex;
+  justify-content: space-between;
+}
+.rte__content :deep(.ProseMirror-selectednode) {
+  outline: 2px solid var(--p-primary-color);
 }
 .rte__content :deep(td),
 .rte__content :deep(th) {

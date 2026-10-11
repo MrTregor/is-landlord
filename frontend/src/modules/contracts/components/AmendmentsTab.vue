@@ -10,6 +10,7 @@ import {
   type Amendment,
   type ContractDetail,
 } from '@/api/queries/contracts'
+import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import type { components } from '@/api/schema'
 import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
@@ -17,6 +18,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import { formatDate, formatMonth, toIsoDate } from '@/utils/date'
 import { amendmentKindLabels, amendmentStatusLabels, amendmentStatusSeverity, options } from '@/utils/labels'
 import { formatKop } from '@/utils/money'
+import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
 
 type Kind = components['schemas']['AmendmentKind']
@@ -24,6 +26,20 @@ const props = defineProps<{ contract: ContractDetail; createSignal: number }>()
 const toast = useToast()
 const list = useContractSub(() => props.contract.id, 'amendments', fetchAmendments)
 const m = useContractMutations(() => props.contract.id)
+const docs = useDocumentMutations()
+
+/** PDF допсоглашения: у черновика формируется заново, у подписанного — открывается последний сформированный. */
+async function amendmentPdf(a: Amendment) {
+  try {
+    await openInNewTab(async () =>
+      a.status !== 'draft' && a.documentId
+        ? documentPdfUrl(a.documentId)
+        : documentPdfUrl((await docs.amendment.mutateAsync(a.id)).id),
+    )
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: parseProblem(err).message, life: 6000 })
+  }
+}
 const live = computed(() => props.contract.status === 'active' || props.contract.status === 'extended')
 
 /** Кратко об изменениях: «плата 29 400,00 ₽», «до 30.11.2027». */
@@ -210,9 +226,12 @@ const monthLabel = computed(() => (form.month ? formatMonth(toIsoDate(form.month
         <template #body="{ data }">
           <div v-if="(data as Amendment).status === 'draft'" class="row-actions">
             <Button label="Изменить" size="small" text :disabled="!live" @click="open(data as Amendment)" />
-            <Button label="PDF" size="small" text disabled title="Документы формируются с этапа M5" />
+            <Button label="PDF" size="small" text @click="amendmentPdf(data as Amendment)" />
             <Button label="Подписано" size="small" text :disabled="!live" @click="openSign(data as Amendment)" />
             <Button label="Отменить" size="small" text severity="danger" @click="openCancel(data as Amendment)" />
+          </div>
+          <div v-else-if="(data as Amendment).status === 'signed'" class="row-actions">
+            <Button label="PDF" size="small" text @click="amendmentPdf(data as Amendment)" />
           </div>
         </template>
       </Column>

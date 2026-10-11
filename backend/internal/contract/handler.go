@@ -355,9 +355,21 @@ func (h *Handler) ListAmendments(ctx context.Context, req api.ListAmendmentsRequ
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, a := range rows {
+		ids = append(ids, a.ID)
+	}
+	docs, err := h.svc.docs.LastAmendmentDocuments(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make(api.ListAmendments200JSONResponse, 0, len(rows))
 	for _, a := range rows {
-		out = append(out, amendmentDTO(a))
+		d := amendmentDTO(a)
+		if id, ok := docs[a.ID]; ok {
+			d.DocumentId = &id
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }

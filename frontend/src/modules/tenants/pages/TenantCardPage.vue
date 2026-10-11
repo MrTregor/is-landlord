@@ -3,6 +3,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import { uploadFile } from '@/api/queries/properties'
 import { useTenant, useTenantMutations } from '@/api/queries/tenants'
 import type { components } from '@/api/schema'
@@ -21,6 +22,7 @@ import {
   userStatusLabels,
 } from '@/utils/labels'
 import { formatPhone } from '@/utils/phone'
+import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
 
 type Consent = components['schemas']['PdnConsentDTO']
@@ -67,6 +69,22 @@ async function resend() {
   }
 }
 
+// «Сформировать согласие» — бланк PDF; отметка о получении связывается с последним сформированным бланком.
+const docs = useDocumentMutations()
+const consentDocumentId = ref<string | null>(null)
+watch(id, () => (consentDocumentId.value = null))
+async function consentPdf() {
+  try {
+    await openInNewTab(async () => {
+      const d = await docs.consentForm.mutateAsync(id.value)
+      consentDocumentId.value = d.id
+      return documentPdfUrl(d.id)
+    })
+  } catch (err) {
+    fail(err)
+  }
+}
+
 // «Отметить получение» подписанного согласия.
 const consentDialog = ref(false)
 const consentForm = reactive({ givenOn: toIsoDate(new Date()) as string | null, file: null as File | null })
@@ -79,7 +97,7 @@ async function saveConsent() {
   }
   try {
     const fileId = consentForm.file ? (await uploadFile(consentForm.file, 'consent_scan')).id : null
-    await m.recordConsent.mutateAsync({ givenOn: consentForm.givenOn, fileId, documentId: null })
+    await m.recordConsent.mutateAsync({ givenOn: consentForm.givenOn, fileId, documentId: consentDocumentId.value })
     consentDialog.value = false
     toast.add({ severity: 'success', summary: 'Согласие отмечено', life: 3000 })
   } catch (err) {
@@ -287,8 +305,9 @@ const canInvite = computed(() => !!t.value && !t.value.user && !!t.value.email &
               label="Сформировать согласие"
               icon="pi pi-file-pdf"
               outlined
-              disabled
-              title="Бланк согласия формируется с этапа M5"
+              :disabled="!!t.anonymizedAt"
+              :loading="docs.consentForm.isPending.value"
+              @click="consentPdf"
             />
             <Button
               label="Отметить получение"

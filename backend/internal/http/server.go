@@ -17,6 +17,7 @@ import (
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
+	"landlord/backend/internal/document"
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/meter"
@@ -68,6 +69,7 @@ type Modules struct {
 	Tenants  *tenant.Handler
 	Contract *contract.Handler
 	Calendar *calendar.Handler
+	Document *document.Handler
 	Billing  *billing.Handler
 	Jobs     *jobrun.Handler
 }
@@ -88,6 +90,7 @@ type (
 	tenantHandler   = tenant.Handler
 	contractHandler = contract.Handler
 	calendarHandler = calendar.Handler
+	documentHandler = document.Handler
 	billingHandler  = billing.Handler
 	jobsHandler     = jobrun.Handler
 )
@@ -105,6 +108,7 @@ type Server struct {
 	*tenantHandler
 	*contractHandler
 	*calendarHandler
+	*documentHandler
 	*billingHandler
 	*jobsHandler
 
@@ -122,7 +126,7 @@ func NewServer(deps Deps) *Server {
 	s := &Server{
 		authHandler: m.Auth, userHandler: m.Users, auditHandler: m.Audit, settingsHandler: m.Settings,
 		fileHandler: m.Files, propertyHandler: m.Property, meterHandler: m.Meters, tenantHandler: m.Tenants,
-		contractHandler: m.Contract, calendarHandler: m.Calendar, billingHandler: m.Billing, jobsHandler: m.Jobs,
+		contractHandler: m.Contract, calendarHandler: m.Calendar, documentHandler: m.Document, billingHandler: m.Billing, jobsHandler: m.Jobs,
 		deps: deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {

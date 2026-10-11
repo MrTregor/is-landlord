@@ -13,6 +13,7 @@ import (
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
+	"landlord/backend/internal/document"
 	"landlord/backend/internal/file"
 	httpserver "landlord/backend/internal/http"
 	"landlord/backend/internal/jobrun"
@@ -23,6 +24,7 @@ import (
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/mailer"
+	"landlord/backend/internal/platform/pdf"
 	"landlord/backend/internal/property"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
@@ -31,29 +33,32 @@ import (
 
 // App — сервисы модулей.
 type App struct {
-	Config   *config.Config
-	Log      *slog.Logger
-	Clock    clock.Clock
-	DB       *db.DB
-	Jobs     *river.Client[pgx.Tx]
-	Audit    *audit.Service
-	Notify   *notify.Service
-	Settings *settings.Service
-	Auth     *auth.Service
-	Users    *user.Service
-	Files    *file.Service
-	Property *property.Service
-	Meters   *meter.Service
-	Tenants  *tenant.Service
-	Billing  *billing.Service
-	Contract *contract.Service
-	Calendar *calendar.Service
+	Config    *config.Config
+	Log       *slog.Logger
+	Clock     clock.Clock
+	DB        *db.DB
+	Jobs      *river.Client[pgx.Tx]
+	Audit     *audit.Service
+	Notify    *notify.Service
+	Settings  *settings.Service
+	Auth      *auth.Service
+	Users     *user.Service
+	Files     *file.Service
+	Property  *property.Service
+	Meters    *meter.Service
+	Tenants   *tenant.Service
+	Billing   *billing.Service
+	Documents *document.Service
+	Contract  *contract.Service
+	Calendar  *calendar.Service
 }
 
 // Options — необязательные параметры (тесты).
 type Options struct {
 	// Argon — параметры хеширования паролей; по умолчанию — из спецификации.
 	Argon *crypto.Argon2Params
+	// PDF — формирование PDF; по умолчанию — Gotenberg по адресу GOTENBERG_URL.
+	PDF pdf.Converter
 }
 
 // New собирает сервисы. Клиент River — только для постановки задач (InsertTx).
@@ -81,7 +86,12 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Tenants = tenant.NewService(database, a.Audit, clk, cipher, a.Auth, a.Settings, a.Files)
 	a.Billing = billing.NewService(database, a.Audit, clk, a.Settings)
 	a.Meters = meter.NewService(database, a.Audit, clk, a.Billing, a.Notify)
-	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify, a.Billing)
+	conv := opt.PDF
+	if conv == nil {
+		conv = pdf.New(cfg.GotenbergURL)
+	}
+	a.Documents = document.NewService(database, a.Audit, clk, a.Settings, a.Tenants, a.Files, conv, cfg.AppPublicURL)
+	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify, a.Billing, a.Documents)
 	a.Calendar = calendar.NewService(database, a.Audit, clk)
 	return a, nil
 }
@@ -102,6 +112,7 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Tenants:  tenant.NewHandler(a.Tenants),
 			Contract: contract.NewHandler(a.Contract),
 			Calendar: calendar.NewHandler(a.Calendar),
+			Document: document.NewHandler(a.Documents),
 			Billing:  billing.NewHandler(a.Billing),
 			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, Daily()),
 		},

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import { useContract, useContractMutations } from '@/api/queries/contracts'
+import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import { useTenantMutations } from '@/api/queries/tenants'
 import MoneyText from '@/components/MoneyText.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -12,11 +13,14 @@ import PlannedTab from '@/components/PlannedTab.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { formatDate } from '@/utils/date'
 import { contractStatusLabels, contractStatusSeverity, legalBasisLabels } from '@/utils/labels'
+import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
 import ActivateDialog from '../components/ActivateDialog.vue'
 import ActsTab from '../components/ActsTab.vue'
 import AmendmentsTab from '../components/AmendmentsTab.vue'
 import ChargesTab from '../components/ChargesTab.vue'
+import DocumentsTab from '../components/DocumentsTab.vue'
+import ReconciliationDialog from '../components/ReconciliationDialog.vue'
 import TerminateDialog from '../components/TerminateDialog.vue'
 import TermsTab from '../components/TermsTab.vue'
 import TimelineTab from '../components/TimelineTab.vue'
@@ -30,6 +34,7 @@ const contract = useContract(id)
 const m = useContractMutations(id)
 const c = computed(() => contract.data.value)
 const tenantM = useTenantMutations(() => c.value?.tenant.id ?? '')
+const docs = useDocumentMutations()
 
 const live = computed(() => c.value?.status === 'active' || c.value?.status === 'extended')
 const closed = computed(() => c.value?.status === 'terminated' || c.value?.status === 'finished')
@@ -39,7 +44,7 @@ const tabs = [
   { value: 'charges', label: 'Начисления' },
   { value: 'payments', label: 'Платежи', stage: 'M6' },
   { value: 'deposit', label: 'Залог', stage: 'M6' },
-  { value: 'documents', label: 'Документы', stage: 'M5' },
+  { value: 'documents', label: 'Документы' },
   { value: 'amendments', label: 'Допсоглашения' },
   { value: 'acts', label: 'Акты' },
   { value: 'timeline', label: 'Журнал' },
@@ -96,10 +101,20 @@ async function inviteTenant() {
   }
 }
 
+/** Сформировать документ договора (проект для черновика) и открыть PDF. */
+async function contractPdf() {
+  try {
+    await openInNewTab(async () => documentPdfUrl((await docs.contract.mutateAsync(id.value)).id))
+  } catch (err) {
+    fail(err)
+  }
+}
+
+const reconDialog = ref(false)
 const moreMenu = ref()
 const moreItems = computed(() => [
-  { label: 'Сформировать договор заново', icon: 'pi pi-file-pdf', disabled: true },
-  { label: 'Акт сверки', icon: 'pi pi-list', disabled: true },
+  { label: 'Сформировать договор заново', icon: 'pi pi-file-pdf', command: contractPdf },
+  { label: 'Акт сверки', icon: 'pi pi-list', command: () => (reconDialog.value = true) },
   { label: 'Пригласить в кабинет', icon: 'pi pi-send', disabled: !c.value?.tenant.email, command: inviteTenant },
   { label: 'Взаиморасчёт', icon: 'pi pi-calculator', command: () => router.push(`/contracts/${id.value}/settlement`) },
 ])
@@ -120,8 +135,8 @@ const moreItems = computed(() => [
               label="Сформировать проект"
               icon="pi pi-file-pdf"
               outlined
-              disabled
-              title="Документы формируются с этапа M5"
+              :loading="docs.contract.isPending.value"
+              @click="contractPdf"
             />
             <Button label="Ввести в действие" icon="pi pi-check" @click="activateDialog = true" />
             <Button label="Удалить черновик" icon="pi pi-trash" severity="danger" outlined @click="deleteDraft" />
@@ -143,7 +158,7 @@ const moreItems = computed(() => [
               @click="router.push(`/contracts/${c.id}/settlement`)"
             />
             <Button label="Акт возврата" icon="pi pi-replay" outlined @click="returnAct" />
-            <Button label="Акт сверки" icon="pi pi-list" outlined disabled title="Акт сверки — этап M6" />
+            <Button label="Акт сверки" icon="pi pi-list" outlined @click="reconDialog = true" />
           </template>
         </template>
       </PageHeader>
@@ -216,6 +231,7 @@ const moreItems = computed(() => [
           <TabPanel value="acts"
             ><ActsTab v-if="tab === 'acts'" :contract="c" :return-signal="returnSignal"
           /></TabPanel>
+          <TabPanel value="documents"><DocumentsTab v-if="tab === 'documents'" :contract="c" /></TabPanel>
           <TabPanel value="timeline"><TimelineTab v-if="tab === 'timeline'" :contract-id="c.id" /></TabPanel>
           <template v-for="t in tabs" :key="t.value">
             <TabPanel v-if="t.stage" :value="t.value"><PlannedTab :stage="t.stage" /></TabPanel>
@@ -225,6 +241,7 @@ const moreItems = computed(() => [
 
       <ActivateDialog v-model:visible="activateDialog" :contract="c" />
       <TerminateDialog v-if="live" v-model:visible="terminateDialog" :contract="c" />
+      <ReconciliationDialog v-if="c.status !== 'draft'" v-model:visible="reconDialog" :contract="c" />
     </template>
   </div>
 </template>

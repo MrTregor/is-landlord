@@ -2,6 +2,7 @@
 package file
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ const (
 	CategorySignedScan    = "signed_scan"
 	CategoryBankStatement = "bank_statement"
 	CategoryOther         = "other"
+	CategoryDocumentPDF   = "document_pdf" // формируется системой, не загружается
 )
 
 // rule — допустимые типы и подсказка для ошибки.
@@ -97,6 +99,24 @@ func (s *Service) Upload(ctx context.Context, name, category string, r io.Reader
 	f, err := s.db.Queries().InsertFile(ctx, sqlc.InsertFileParams{
 		StorageKey: st.StorageKey, OriginalName: cleanName(name, st.Kind.Ext), ContentType: st.Kind.ContentType,
 		SizeBytes: st.Size, Sha256: st.SHA256, Category: category, UploadedBy: &a.UserID, CreatedAt: s.clock.Now(),
+	})
+	if err != nil {
+		_ = s.store.Remove(st.StorageKey)
+		return sqlc.File{}, err
+	}
+	return f, nil
+}
+
+// SaveGenerated сохраняет PDF, сформированный системой (документы), в транзакции q; права не проверяются.
+func (s *Service) SaveGenerated(ctx context.Context, q *sqlc.Queries, name, category string, data []byte, by *uuid.UUID,
+) (sqlc.File, error) {
+	st, err := s.store.Save(bytes.NewReader(data), int64(len(data))+1, s.clock.Now(), func(k files.Kind) bool { return k == files.KindPDF })
+	if err != nil {
+		return sqlc.File{}, err
+	}
+	f, err := q.InsertFile(ctx, sqlc.InsertFileParams{
+		StorageKey: st.StorageKey, OriginalName: cleanName(name, st.Kind.Ext), ContentType: st.Kind.ContentType,
+		SizeBytes: st.Size, Sha256: st.SHA256, Category: category, UploadedBy: by, CreatedAt: s.clock.Now(),
 	})
 	if err != nil {
 		_ = s.store.Remove(st.StorageKey)

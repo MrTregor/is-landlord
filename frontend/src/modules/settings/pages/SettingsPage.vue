@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
+import DocumentTemplatesTab from '../components/DocumentTemplatesTab.vue'
 import OrganizationTab from '../components/OrganizationTab.vue'
 import PdnTab from '../components/PdnTab.vue'
 import ServiceTab from '../components/ServiceTab.vue'
@@ -15,7 +16,7 @@ const tabs = [
   { value: 'taxes', label: 'Налоги и фискализация', component: TaxesTab },
   { value: 'notifications', label: 'Уведомления и сроки', stage: 'M10' },
   { value: 'email-templates', label: 'Шаблоны писем', stage: 'M10' },
-  { value: 'document-templates', label: 'Шаблоны документов', stage: 'M5' },
+  { value: 'document-templates', label: 'Шаблоны документов', component: DocumentTemplatesTab },
   { value: 'tariffs', label: 'Тарифы', component: TariffsTab },
   { value: 'users', label: 'Пользователи', component: UsersTab },
   { value: 'pdn', label: 'ПДн', component: PdnTab },

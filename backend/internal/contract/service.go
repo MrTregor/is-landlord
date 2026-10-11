@@ -13,6 +13,7 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/billing"
 	"landlord/backend/internal/billing/calc"
+	"landlord/backend/internal/document"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
@@ -55,13 +56,14 @@ type Service struct {
 	settings *settings.Service
 	notify   *notify.Service
 	billing  *billing.Service
+	docs     *document.Service
 }
 
 // NewService создаёт сервис договоров.
 func NewService(database *db.DB, au *audit.Service, clk clock.Clock, ts *tenant.Service, st *settings.Service, nt *notify.Service,
-	bl *billing.Service,
+	bl *billing.Service, docs *document.Service,
 ) *Service {
-	return &Service{db: database, audit: au, clock: clk, tenants: ts, settings: st, notify: nt, billing: bl}
+	return &Service{db: database, audit: au, clock: clk, tenants: ts, settings: st, notify: nt, billing: bl, docs: docs}
 }
 
 // Occupant — проживающий.
