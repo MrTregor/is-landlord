@@ -3718,7 +3718,7 @@ components:
     AuditActorRole: { type: string, enum: [owner, tenant, system] }
     IncomeKind:
       type: string
-      enum: [rent, utilities, penalty, damage, other, advance, deposit_withholding, refund]
+      enum: [rent, utilities, penalty, damage, other, advance, deposit_withholding, refund, advance_to_deposit]
       description: Вид доходной операции (05 разд. 12.1).
 
     # ============================================================ Служебное

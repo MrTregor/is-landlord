@@ -3278,7 +3278,7 @@ export interface components {
          * @description Вид доходной операции (05 разд. 12.1).
          * @enum {string}
          */
-        IncomeKind: "rent" | "utilities" | "penalty" | "damage" | "other" | "advance" | "deposit_withholding" | "refund";
+        IncomeKind: "rent" | "utilities" | "penalty" | "damage" | "other" | "advance" | "deposit_withholding" | "refund" | "advance_to_deposit";
         HealthStatus: {
             /** @enum {string} */
             status: "ok";

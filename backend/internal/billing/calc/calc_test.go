@@ -124,7 +124,7 @@ func TestPenalty_FR05_3(t *testing.T) {
 // Налоговая база (16 разд. 2): платёж 30 000 (28 000 плата + 2 000 аванс), удержание 5 000, возврат 1 000 → 34 000; 6 % = 2 040.
 func TestIncomeAndTax_FR05_8_FR11_3(t *testing.T) {
 	inc := IncomeOf([]PaymentIncome{{Amount: 3000000, Allocations: map[string]money.Kop{IncomeRent: 2800000}}},
-		[]money.Kop{500000}, []money.Kop{100000})
+		[]money.Kop{500000}, []money.Kop{100000}, nil)
 	if inc.Total != 3400000 || inc.ByKind[IncomeAdvance] != 200000 || inc.ByKind[IncomeRefund] != -100000 {
 		t.Fatalf("доход %+v", inc)
 	}
@@ -138,11 +138,23 @@ func TestIncomeAndTax_FR05_8_FR11_3(t *testing.T) {
 	if r := Tax("usn_income_expense", dec("15"), inc, 5000000); *r.Tax != 0 || r.Base != -1600000 {
 		t.Fatalf("УСН д−р при убытке: %+v", r)
 	}
-	legal := IncomeOf([]PaymentIncome{{Amount: 1000000, FromLegal: true}, {Amount: 1000000}}, nil, nil)
+	legal := IncomeOf([]PaymentIncome{{Amount: 1000000, FromLegal: true}, {Amount: 1000000}}, nil, nil, nil)
 	if r := Tax("npd", decimal.Zero, legal, 0); *r.Tax != 100000 {
 		t.Fatalf("НПД: %+v", r)
 	}
 	if r := Tax("psn", decimal.Zero, inc, 0); r.Tax != nil || r.Note == "" {
 		t.Fatal("ПСН")
+	}
+}
+
+// Перенос переплаты в залог (05 разд. 12.2): платёж 30 000 (28 000 плата + 2 000 аванс), 2 000 перенесены в залог,
+// позже залог 2 000 зачтён (платёж deposit_offset) → доход 28 000 + 2 000 = 30 000, без двойного учёта.
+func TestIncomeAdvanceToDeposit_FR05_8_FR11_3(t *testing.T) {
+	inc := IncomeOf([]PaymentIncome{
+		{Amount: 3000000, Allocations: map[string]money.Kop{IncomeRent: 2800000}},
+		{Amount: 200000, Allocations: map[string]money.Kop{IncomeRent: 200000}},
+	}, nil, nil, []money.Kop{200000})
+	if inc.Total != 3200000-200000 || inc.ByKind[IncomeToDeposit] != -200000 || inc.ByKind[IncomeAdvance] != 200000 {
+		t.Fatalf("доход %+v", inc)
 	}
 }

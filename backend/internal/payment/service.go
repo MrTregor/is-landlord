@@ -304,12 +304,17 @@ func (s *Service) cancelPayment(ctx context.Context, tx *db.Tx, p sqlc.Payment, 
 	if hasFiscal {
 		return apperr.Conflict(apperr.CodeFiscalReceiptExists, "По платежу сформирован чек. Оформите возврат")
 	}
-	hasReturns, err := tx.Q.PaymentHasReturns(ctx, p.ID)
+	// docs/open-questions.md, № 46: возврат переплаты не отменяется; перенос в залог сначала отменяется
+	// как последняя операция по залогу (без каскада).
+	ret, err := tx.Q.PaymentReturns(ctx, p.ID)
 	if err != nil {
 		return err
 	}
-	if hasReturns {
-		return apperr.BusinessRule("По платежу оформлен возврат или перенос переплаты в залог — отмена невозможна")
+	if ret.HasRefunds {
+		return apperr.BusinessRule("По платежу оформлен возврат переплаты — отмена невозможна")
+	}
+	if ret.HasTransfers {
+		return apperr.BusinessRule("По платежу оформлен перенос переплаты в залог. Сначала отмените его в разделе «Залог»")
 	}
 	now := s.clock.Now()
 	charges, err := tx.Q.ReversePaymentAllocations(ctx, sqlc.ReversePaymentAllocationsParams{PaymentID: p.ID, Now: &now, Reason: &reason})
@@ -406,7 +411,7 @@ func (s *Service) Refund(ctx context.Context, paymentID uuid.UUID, in RefundInpu
 		if err != nil {
 			return err
 		}
-		return s.resolveOverpaymentOf(ctx, tx, p.ID, "refunded", &r.Reason)
+		return s.settleOverpayment(ctx, tx, p.ID, "refunded", &r.Reason)
 	})
 	return r, err
 }
@@ -474,7 +479,7 @@ func (s *Service) MoveToDeposit(ctx context.Context, paymentID uuid.UUID, amount
 		if err != nil {
 			return err
 		}
-		return s.resolveOverpaymentOf(ctx, tx, p.ID, "moved_to_deposit", nil)
+		return s.settleOverpayment(ctx, tx, p.ID, "moved_to_deposit", nil)
 	})
 	return op, err
 }
@@ -509,9 +514,10 @@ func (s *Service) moveToDeposit(ctx context.Context, tx *db.Tx, p sqlc.Payment, 
 	})
 }
 
-// resolveOverpaymentOf — открытое расхождение «переплата» по платежу закрывается решением собственника;
-// если аванс остался, сумма расхождения больше не отслеживается (решение принято).
-func (s *Service) resolveOverpaymentOf(ctx context.Context, tx *db.Tx, paymentID uuid.UUID, resolution string, note *string) error {
+// settleOverpayment — открытое расхождение «переплата» после возврата или переноса в залог (05 разд. 10.6):
+// аванс израсходован целиком — расхождение закрывается решением resolution; остался — уменьшается сумма,
+// расхождение остаётся открытым.
+func (s *Service) settleOverpayment(ctx context.Context, tx *db.Tx, paymentID uuid.UUID, resolution string, note *string) error {
 	list, err := tx.Q.ListDiscrepancies(ctx, sqlc.ListDiscrepanciesParams{
 		Status: ptr("open"), Kind: ptr("overpayment"), PaymentID: &paymentID, Lim: 1,
 	})
@@ -519,6 +525,13 @@ func (s *Service) resolveOverpaymentOf(ctx context.Context, tx *db.Tx, paymentID
 		return err
 	}
 	d := list[0]
+	advance, err := tx.Q.PaymentAdvance(ctx, paymentID)
+	if err != nil {
+		return err
+	}
+	if advance > 0 {
+		return tx.Q.SetDiscrepancyAmount(ctx, sqlc.SetDiscrepancyAmountParams{ID: d.ID, AmountKop: advance})
+	}
 	if _, err := tx.Q.ResolveDiscrepancy(ctx, sqlc.ResolveDiscrepancyParams{
 		ID: d.ID, Resolution: resolution, Note: note, ResolvedBy: actorID(ctx), Now: s.clock.Now(),
 	}); err != nil {

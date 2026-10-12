@@ -1337,19 +1337,6 @@ func (q *Queries) PaymentHasActiveFiscal(ctx context.Context, paymentID *uuid.UU
 	return exists, err
 }
 
-const paymentHasReturns = `-- name: PaymentHasReturns :one
-SELECT (EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = $1::uuid)
-    OR EXISTS (SELECT 1 FROM deposit_transactions d WHERE d.payment_id = $1::uuid AND d.from_advance AND d.cancelled_at IS NULL))::boolean AS has_returns
-`
-
-// По платежу оформлен возврат переплаты или перенос переплаты в залог.
-func (q *Queries) PaymentHasReturns(ctx context.Context, paymentID uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, paymentHasReturns, paymentID)
-	var has_returns bool
-	err := row.Scan(&has_returns)
-	return has_returns, err
-}
-
 const paymentReceiptDocument = `-- name: PaymentReceiptDocument :one
 SELECT id, kind, number, title, contract_id, tenant_id, payment_id, amendment_id, act_id, template_id, file_id, html_snapshot, data_snapshot, period_from, period_to, visible_to_tenant, signed_scan_file_id, superseded_by, created_by, created_at FROM documents WHERE payment_id = $1 AND kind = 'payment_receipt' AND superseded_by IS NULL
 ORDER BY created_at DESC LIMIT 1
@@ -1415,6 +1402,25 @@ func (q *Queries) PaymentRefunds(ctx context.Context, paymentID uuid.UUID) ([]Re
 		return nil, err
 	}
 	return items, nil
+}
+
+const paymentReturns = `-- name: PaymentReturns :one
+SELECT EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = $1::uuid)::boolean AS has_refunds,
+       EXISTS (SELECT 1 FROM deposit_transactions d
+               WHERE d.payment_id = $1::uuid AND d.from_advance AND d.cancelled_at IS NULL)::boolean AS has_transfers
+`
+
+type PaymentReturnsRow struct {
+	HasRefunds   bool
+	HasTransfers bool
+}
+
+// По платежу оформлены возврат переплаты и (или) действующий перенос переплаты в залог.
+func (q *Queries) PaymentReturns(ctx context.Context, paymentID uuid.UUID) (PaymentReturnsRow, error) {
+	row := q.db.QueryRow(ctx, paymentReturns, paymentID)
+	var i PaymentReturnsRow
+	err := row.Scan(&i.HasRefunds, &i.HasTransfers)
+	return i, err
 }
 
 const reopenUnidentified = `-- name: ReopenUnidentified :exec

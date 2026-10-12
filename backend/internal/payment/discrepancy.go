@@ -106,9 +106,11 @@ func (s *Service) Resolve(ctx context.Context, id uuid.UUID, in ResolveInput) (u
 			}
 			resolution = "acknowledged"
 		case "refund", "move_to_deposit":
+			// Закрывается, только если аванс израсходован целиком; иначе уменьшается сумма (05 разд. 10.6).
 			if resolution, err = s.overpaymentAction(ctx, tx, d, in, note); err != nil {
 				return err
 			}
+			return s.settleOverpayment(ctx, tx, *d.PaymentID, resolution, note)
 		}
 		if _, err := tx.Q.ResolveDiscrepancy(ctx, sqlc.ResolveDiscrepancyParams{
 			ID: d.ID, Resolution: resolution, Note: note, ResolvedBy: actorID(ctx), Now: s.clock.Now(),

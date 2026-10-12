@@ -291,11 +291,11 @@ type Querier interface {
 	PaymentFiscalReceipt(ctx context.Context, paymentID *uuid.UUID) (FiscalReceipt, error)
 	// Чек по платежу в статусе done, queued или wait запрещает отмену (05 разд. 10.5).
 	PaymentHasActiveFiscal(ctx context.Context, paymentID *uuid.UUID) (bool, error)
-	// По платежу оформлен возврат переплаты или перенос переплаты в залог.
-	PaymentHasReturns(ctx context.Context, paymentID uuid.UUID) (bool, error)
 	// Действующая квитанция платежа.
 	PaymentReceiptDocument(ctx context.Context, paymentID *uuid.UUID) (Document, error)
 	PaymentRefunds(ctx context.Context, paymentID uuid.UUID) ([]Refund, error)
+	// По платежу оформлены возврат переплаты и (или) действующий перенос переплаты в залог.
+	PaymentReturns(ctx context.Context, paymentID uuid.UUID) (PaymentReturnsRow, error)
 	// Платежи договора «за начисления» с авансом > 0 (05 разд. 10.4; аванс вычисляется, примечание к схеме 04).
 	PaymentsWithAdvance(ctx context.Context, contractID uuid.UUID) ([]PaymentsWithAdvanceRow, error)
 	// Пени

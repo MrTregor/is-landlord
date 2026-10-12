@@ -190,10 +190,11 @@ SELECT * FROM deposit_transactions WHERE payment_id = $1 AND kind = 'receipt' AN
 -- name: DepositOffsetOfPayment :one
 SELECT * FROM deposit_transactions WHERE payment_id = $1 AND kind = 'offset' AND cancelled_at IS NULL;
 
--- name: PaymentHasReturns :one
--- По платежу оформлен возврат переплаты или перенос переплаты в залог.
-SELECT (EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = @payment_id::uuid)
-    OR EXISTS (SELECT 1 FROM deposit_transactions d WHERE d.payment_id = @payment_id::uuid AND d.from_advance AND d.cancelled_at IS NULL))::boolean AS has_returns;
+-- name: PaymentReturns :one
+-- По платежу оформлены возврат переплаты и (или) действующий перенос переплаты в залог.
+SELECT EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = @payment_id::uuid)::boolean AS has_refunds,
+       EXISTS (SELECT 1 FROM deposit_transactions d
+               WHERE d.payment_id = @payment_id::uuid AND d.from_advance AND d.cancelled_at IS NULL)::boolean AS has_transfers;
 
 -- Расхождения
 

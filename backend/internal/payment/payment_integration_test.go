@@ -299,16 +299,15 @@ func TestOverpaymentLifecycle_FR07_3(t *testing.T) {
 	assert.Nil(t, byKind(open, "underpayment"), "долг погашен — недоплаты нет")
 	_ = sep
 
-	// Возврат части переплаты через разбор расхождения.
+	// Возврат части переплаты через разбор расхождения: расхождение остаётся открытым, сумма уменьшается.
 	r := w.c.Do(http.MethodPost, "/discrepancies/"+over.ID+"/resolve", map[string]any{
 		"action": "refund", "amountKop": 400000, "refundedOn": "2026-10-12", "method": "cash", "note": "Вернули наличными",
 	})
 	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
 	var res discrepancy
 	r.JSON(t, &res)
-	assert.Equal(t, "resolved", res.Status)
-	require.NotNil(t, res.Resolution)
-	assert.Equal(t, "refunded", *res.Resolution)
+	assert.Equal(t, "open", res.Status)
+	assert.Equal(t, int64(1000000), res.AmountKop)
 	p := w.payment(t, p2.ID)
 	assert.Equal(t, int64(1000000), p.AdvanceKop)
 	require.Len(t, p.Refunds, 1)
@@ -334,6 +333,9 @@ func TestOverpaymentLifecycle_FR07_3(t *testing.T) {
 	assert.Equal(t, int64(500000), dep.BalanceKop)
 	require.Len(t, dep.Operations, 1)
 	assert.True(t, dep.Operations[0].FromAdvance)
+	over = byKind(w.discrepancies(t, id, "open"), "overpayment")
+	require.NotNil(t, over, "частичный перенос — расхождение открыто")
+	assert.Equal(t, int64(500000), over.AmountKop)
 
 	// Новое начисление погашается авансом (05 разд. 10.4).
 	r = w.c.Do(http.MethodPost, "/charges", map[string]any{
@@ -359,6 +361,74 @@ func TestOverpaymentLifecycle_FR07_3(t *testing.T) {
 	assert.Equal(t, int64(500000), settle.DepositBalanceKop)
 	require.Len(t, settle.PaymentsWithAdvance, 1)
 	assert.Equal(t, p2.ID, settle.PaymentsWithAdvance[0].PaymentID)
+	over = byKind(w.discrepancies(t, id, "open"), "overpayment")
+	require.NotNil(t, over)
+	assert.Equal(t, int64(200000), over.AmountKop, "сумма расхождения следует за авансом")
+
+	// Возврат всего аванса из карточки платежа закрывает расхождение решением «возвращено».
+	r = w.c.Do(http.MethodPost, "/payments/"+p2.ID+"/refunds", map[string]any{
+		"amountKop": 200000, "refundedOn": "2026-10-12", "method": "bank_transfer", "reason": "Возврат остатка",
+	})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	assert.Nil(t, byKind(w.discrepancies(t, id, "open"), "overpayment"))
+	closed := byKind(w.discrepancies(t, id, "resolved"), "overpayment")
+	require.NotNil(t, closed)
+	assert.Equal(t, "refunded", *closed.Resolution)
+}
+
+// № 46 (open-questions): платёж с действующим переносом переплаты в залог не отменяется, пока перенос не снят
+// отменой последней операции по залогу; перенос из переплаты возвращает сумму в аванс и платёж не отменяет (№ 47).
+func TestCancelAfterAdvanceToDeposit_FR06_1(t *testing.T) {
+	w := setup(t, "2026-10-12", "k9")
+	id := w.contract(t, "2026-10-01", "2027-09-30", 2800000, func(m map[string]any) { m["firstDueDate"] = "2026-10-10" })
+	p := w.pay(t, id, 3000000, "2026-10-12")
+	r := w.c.Do(http.MethodPost, "/payments/"+p.ID+"/move-to-deposit", map[string]any{"amountKop": 200000, "opDate": "2026-10-12"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	var op struct {
+		ID string `json:"id"`
+	}
+	r.JSON(t, &op)
+	over := byKind(w.discrepancies(t, id, "resolved"), "overpayment")
+	require.NotNil(t, over, "перенесён весь аванс — расхождение закрыто")
+	assert.Equal(t, "moved_to_deposit", *over.Resolution)
+
+	r = w.c.Do(http.MethodPost, "/payments/"+p.ID+"/cancel", map[string]any{"reason": "Ошибка"})
+	require.Equal(t, http.StatusUnprocessableEntity, r.Status)
+	assert.Contains(t, string(r.Body), "Сначала отмените его в разделе «Залог»")
+
+	r = w.c.Do(http.MethodPost, "/deposit-operations/"+op.ID+"/cancel", map[string]any{"reason": "Перенос ошибочный"})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	pp := w.payment(t, p.ID)
+	assert.Equal(t, "succeeded", pp.Status, "отмена переноса не отменяет платёж")
+	assert.Equal(t, int64(200000), pp.AdvanceKop, "сумма вернулась в аванс")
+
+	r = w.c.Do(http.MethodPost, "/payments/"+p.ID+"/cancel", map[string]any{"reason": "Ошибка"})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+}
+
+// № 47 (open-questions): внесение залога онлайн-платежом не отменяется (05 разд. 10.5 — только manual,
+// bank_import, deposit_offset), ошибка та же, что при отмене платежа.
+func TestCancelOnlineDepositReceipt_FR05_2(t *testing.T) {
+	w := setup(t, "2026-10-12", "m0")
+	id := w.contract(t, "2026-10-01", "2027-09-30", 2800000, func(m map[string]any) { m["depositKop"] = 2800000 })
+	ctx := context.Background()
+	conn := testsupport.Owner(t)
+	var pid, opID string
+	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source, status, receipt_number)
+		VALUES ($1, 'deposit', 2800000, '2026-10-05', 'online', 'online', 'succeeded', 'КВ-ТЕСТ-ОНЛАЙН') RETURNING id`, id).Scan(&pid))
+	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO deposit_transactions (contract_id, kind, amount_kop, op_date, payment_id)
+		VALUES ($1, 'receipt', 2800000, '2026-10-05', $2) RETURNING id`, id, pid).Scan(&opID))
+
+	r := w.c.Do(http.MethodPost, "/payments/"+pid+"/cancel", map[string]any{"reason": "Ошибка"})
+	require.Equal(t, http.StatusUnprocessableEntity, r.Status)
+	want := r.Code()
+	body := string(r.Body)
+	r = w.c.Do(http.MethodPost, "/deposit-operations/"+opID+"/cancel", map[string]any{"reason": "Ошибка"})
+	require.Equal(t, http.StatusUnprocessableEntity, r.Status)
+	assert.Equal(t, want, r.Code())
+	assert.Contains(t, string(r.Body), "Онлайн-платёж не отменяется")
+	assert.Contains(t, body, "Онлайн-платёж не отменяется")
+	assert.Equal(t, "succeeded", w.payment(t, pid).Status)
 }
 
 // Отмена платежа: распределения отменяются, начисления снова открыты, переплата закрывается автоматически;
@@ -399,6 +469,7 @@ func TestCancelPayment_FR06_1(t *testing.T) {
 	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	r = w.c.Do(http.MethodPost, "/payments/"+p2.ID+"/cancel", map[string]any{"reason": "Ошибка"})
 	assert.Equal(t, http.StatusUnprocessableEntity, r.Status)
+	assert.Contains(t, string(r.Body), "По платежу оформлен возврат переплаты — отмена невозможна")
 
 	// Чек по платежу в статусе done запрещает отмену (409 fiscal_receipt_exists).
 	p3 := w.pay(t, id, 100000, "2026-10-12")

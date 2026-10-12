@@ -10,6 +10,7 @@ import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import { discrepancyKindLabels, options, refundMethodLabels } from '@/utils/labels'
+import { formatKop } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
 
 type Action = 'keep_advance' | 'refund' | 'move_to_deposit' | 'acknowledge'
@@ -78,7 +79,7 @@ async function save() {
   serverError.value = null
   if (Object.keys(errors.value).length) return
   try {
-    await m.resolve.mutateAsync({
+    const res = await m.resolve.mutateAsync({
       id: props.discrepancy.id,
       body: {
         action: form.action,
@@ -89,7 +90,12 @@ async function save() {
       },
     })
     visible.value = false
-    toast.add({ severity: 'success', summary: 'Расхождение разобрано', life: 3000 })
+    // Частичный возврат или перенос не закрывает расхождение: остаток переплаты отслеживается дальше (05 разд. 10.6).
+    toast.add({
+      severity: 'success',
+      summary: res.status === 'open' ? `Переплата уменьшена до ${formatKop(res.amountKop)}` : 'Расхождение разобрано',
+      life: 4000,
+    })
   } catch (e) {
     const p = parseProblem(e)
     serverErrors.value = p.fieldErrors

@@ -16,6 +16,7 @@ const (
 	IncomeAdvance     = "advance"
 	IncomeWithholding = "deposit_withholding"
 	IncomeRefund      = "refund"
+	IncomeToDeposit   = "advance_to_deposit"
 )
 
 // PaymentIncome — платёж периода: сумма и активные распределения по видам начислений.
@@ -34,9 +35,10 @@ type Income struct {
 	FromLegal       money.Kop
 }
 
-// IncomeOf — доход: платежи (распределения по видам, нераспределённый остаток — «Аванс»), плюс удержания из залога,
-// минус возвраты переплаты. Внесения и возвраты залога в доход не входят.
-func IncomeOf(payments []PaymentIncome, withholdings []money.Kop, refunds []money.Kop) Income {
+// IncomeOf — доход (05 разд. 12.2): платежи (распределения по видам, нераспределённый остаток — «Аванс»), плюс
+// удержания из залога, минус возвраты переплаты и переносы переплаты в залог. Внесения и возвраты залога в доход
+// не входят; перенесённая в залог часть аванса войдёт в доход при зачёте залога (платёж deposit_offset).
+func IncomeOf(payments []PaymentIncome, withholdings, refunds, toDeposit []money.Kop) Income {
 	inc := Income{ByKind: map[string]money.Kop{}}
 	for _, p := range payments {
 		allocated := money.Kop(0)
@@ -60,6 +62,10 @@ func IncomeOf(payments []PaymentIncome, withholdings []money.Kop, refunds []mone
 	for _, r := range refunds {
 		inc.ByKind[IncomeRefund] -= r
 		inc.FromIndividuals -= r
+	}
+	for _, d := range toDeposit {
+		inc.ByKind[IncomeToDeposit] -= d
+		inc.FromIndividuals -= d
 	}
 	for _, v := range inc.ByKind {
 		inc.Total += v
