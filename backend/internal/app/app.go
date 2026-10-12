@@ -19,6 +19,7 @@ import (
 	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify"
+	"landlord/backend/internal/payment"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/crypto"
 	"landlord/backend/internal/platform/db"
@@ -51,6 +52,7 @@ type App struct {
 	Documents *document.Service
 	Contract  *contract.Service
 	Calendar  *calendar.Service
+	Payments  *payment.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -93,6 +95,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Documents = document.NewService(database, a.Audit, clk, a.Settings, a.Tenants, a.Files, conv, cfg.AppPublicURL)
 	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify, a.Billing, a.Documents)
 	a.Calendar = calendar.NewService(database, a.Audit, clk)
+	a.Payments = payment.NewService(database, a.Audit, clk, a.Billing, a.Documents, a.Notify, client)
 	return a, nil
 }
 
@@ -114,6 +117,7 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Calendar: calendar.NewHandler(a.Calendar),
 			Document: document.NewHandler(a.Documents),
 			Billing:  billing.NewHandler(a.Billing),
+			Payments: payment.NewHandler(a.Payments),
 			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, Daily()),
 		},
 	})
@@ -127,11 +131,12 @@ func Daily() []jobs.Daily {
 // Workers — воркеры фоновых задач процесса worker.
 func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	reg := jobs.NewRegistry()
-	jobs.Add(reg, &notify.EmailSendWorker{DB: a.DB, Clock: a.Clock, Sender: sender})
+	jobs.Add(reg, &notify.EmailSendWorker{DB: a.DB, Clock: a.Clock, Sender: sender, Files: a.Files.Store()})
 	jobs.Add(reg, &contract.DailyWorker{Svc: a.Contract})
 	jobs.Add(reg, &billing.RentWorker{Svc: a.Billing})
 	jobs.Add(reg, &billing.PenaltiesWorker{Svc: a.Billing})
 	jobs.Add(reg, &contract.IndexationWorker{Svc: a.Contract})
+	jobs.Add(reg, &payment.ReceiptWorker{Svc: a.Payments})
 	for _, d := range Daily() {
 		reg.AddDaily(d, a.Clock)
 	}

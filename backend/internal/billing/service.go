@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -322,12 +323,25 @@ func (s *Service) Terminate(ctx context.Context, tx *db.Tx, c sqlc.Contract) err
 			}
 		}
 	}
-	return s.Rebalance(ctx, tx, c.ID)
+	if err := s.Rebalance(ctx, tx, c.ID); err != nil {
+		return err
+	}
+	// 05 разд. 4.7, п. 6: при остатке аванса — расхождение «переплата».
+	pays, err := tx.Q.PaymentsWithAdvance(ctx, c.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range pays {
+		if err := s.FlagOverpayment(ctx, tx, c.ID, p.ID, money.Kop(p.AdvanceKop)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Rebalance — перераспределение авансов договора (05 разд. 10.4): платежи «за начисления» с авансом по возрастанию
 // даты поступления распределяются по порядку раздела 10.3 (шаги 2–5). Существующие распределения не переставляются.
-// Идемпотентна. Платежи появляются на этапе M6; до него функция ничего не меняет.
+// Идемпотентна. В конце — сумма открытых расхождений «переплата» приводится к авансу платежа (05 разд. 10.6).
 func (s *Service) Rebalance(ctx context.Context, tx *db.Tx, contractID uuid.UUID) error {
 	pays, err := tx.Q.PaymentsWithAdvance(ctx, contractID)
 	if err != nil {
@@ -337,8 +351,7 @@ func (s *Service) Rebalance(ctx context.Context, tx *db.Tx, contractID uuid.UUID
 	loaded := false
 	now := s.clock.Now()
 	for _, p := range pays {
-		avail := p.AdvanceKop
-		if avail <= 0 {
+		if p.AdvanceKop <= 0 {
 			continue
 		}
 		if !loaded {
@@ -347,25 +360,118 @@ func (s *Service) Rebalance(ctx context.Context, tx *db.Tx, contractID uuid.UUID
 			}
 			loaded = true
 		}
-		for i := range open {
-			if avail <= 0 {
-				break
-			}
-			ch := &open[i]
-			need := ch.AmountKop - ch.PaidKop
-			if need <= 0 {
-				continue
-			}
-			amt := min(need, avail)
-			if err := tx.Q.InsertAllocation(ctx, sqlc.InsertAllocationParams{PaymentID: p.ID, ChargeID: ch.ID, AmountKop: amt, Now: now}); err != nil {
-				return err
-			}
-			ch.PaidKop += amt
-			avail -= amt
-			if _, err := tx.Q.RefreshChargePaid(ctx, ch.ID); err != nil {
+		if _, err := s.allocate(ctx, tx, p.ID, money.Kop(p.AdvanceKop), open, nil, now); err != nil {
+			return err
+		}
+	}
+	return s.SyncOverpayments(ctx, tx, contractID)
+}
+
+// OpenCharges — открытые начисления договора для распределения (строки блокируются).
+func (s *Service) OpenCharges(ctx context.Context, tx *db.Tx, contractID uuid.UUID) ([]sqlc.Charge, error) {
+	return tx.Q.OpenChargesForAllocation(ctx, contractID)
+}
+
+// Allocate распределяет avail платежа paymentID по открытым начислениям open (05 разд. 10.3): сначала requested,
+// затем по общему порядку. Суммы оплаты в open обновляются. Возвращает нераспределённый остаток (аванс).
+func (s *Service) Allocate(ctx context.Context, tx *db.Tx, paymentID uuid.UUID, avail money.Kop, open []sqlc.Charge,
+	requested []uuid.UUID,
+) (money.Kop, error) {
+	return s.allocate(ctx, tx, paymentID, avail, open, requested, s.clock.Now())
+}
+
+func (s *Service) allocate(ctx context.Context, tx *db.Tx, paymentID uuid.UUID, avail money.Kop, open []sqlc.Charge,
+	requested []uuid.UUID, now time.Time,
+) (money.Kop, error) {
+	list := make([]calc.OpenCharge, 0, len(open))
+	idx := make(map[uuid.UUID]int, len(open))
+	for i, ch := range open {
+		oc := calc.OpenCharge{ID: ch.ID, Kind: ch.Kind, DueDate: ch.DueDate, Seq: i, Outstanding: money.Kop(ch.AmountKop - ch.PaidKop)}
+		if ch.PenaltyState != nil {
+			oc.PenaltyState = *ch.PenaltyState
+		}
+		list = append(list, oc)
+		idx[ch.ID] = i
+	}
+	allocs, rest := calc.Allocate(avail, list, requested)
+	for _, a := range allocs {
+		if err := tx.Q.InsertAllocation(ctx, sqlc.InsertAllocationParams{
+			PaymentID: paymentID, ChargeID: a.ChargeID, AmountKop: int64(a.Amount), Now: now,
+		}); err != nil {
+			return rest, err
+		}
+		open[idx[a.ChargeID]].PaidKop += int64(a.Amount)
+		if _, err := tx.Q.RefreshChargePaid(ctx, a.ChargeID); err != nil {
+			return rest, err
+		}
+	}
+	return rest, nil
+}
+
+// FlagOverpayment — расхождение «переплата» по платежу с остатком аванса (одно на платёж, 05 разд. 10.6).
+func (s *Service) FlagOverpayment(ctx context.Context, tx *db.Tx, contractID, paymentID uuid.UUID, advance money.Kop) error {
+	if advance <= 0 {
+		return nil
+	}
+	return tx.Q.InsertOverpayment(ctx, sqlc.InsertOverpaymentParams{
+		ContractID: &contractID, PaymentID: &paymentID, AmountKop: int64(advance), Now: s.clock.Now(),
+	})
+}
+
+// SyncOverpayments — открытые расхождения «переплата» договора: аванс израсходован (или платёж отменён) —
+// закрыть auto_closed, изменился — сумма расхождения = аванс (05 разд. 10.6).
+func (s *Service) SyncOverpayments(ctx context.Context, tx *db.Tx, contractID uuid.UUID) error {
+	list, err := tx.Q.OpenOverpayments(ctx, &contractID)
+	if err != nil {
+		return err
+	}
+	for _, d := range list {
+		var advance int64
+		if d.PaymentStatus == "succeeded" {
+			if advance, err = tx.Q.PaymentAdvance(ctx, *d.PaymentID); err != nil {
 				return err
 			}
 		}
+		switch {
+		case advance <= 0:
+			if _, err := tx.Q.ResolveDiscrepancy(ctx, sqlc.ResolveDiscrepancyParams{
+				ID: d.ID, Resolution: "auto_closed", Note: ptr("Аванс израсходован"), Now: s.clock.Now(),
+			}); err != nil {
+				return err
+			}
+		case advance != d.AmountKop:
+			if err := tx.Q.SetDiscrepancyAmount(ctx, sqlc.SetDiscrepancyAmountParams{ID: d.ID, AmountKop: advance}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// CheckUnderpayment — расхождение «недоплата» после проведения платежа (05 разд. 10.7): долг по начислениям
+// основного долга со сроком не позже даты поступления; есть — создать или обновить открытое, нет — закрыть.
+func (s *Service) CheckUnderpayment(ctx context.Context, tx *db.Tx, contractID, paymentID uuid.UUID, receivedOn date.Date) error {
+	overdue, err := tx.Q.MainDebtDueBy(ctx, sqlc.MainDebtDueByParams{ContractID: contractID, OnDate: receivedOn})
+	if err != nil {
+		return err
+	}
+	cur, err := tx.Q.OpenUnderpayment(ctx, &contractID)
+	exists := err == nil
+	if err != nil && !db.IsNoRows(err) {
+		return err
+	}
+	switch {
+	case overdue > 0 && exists:
+		return tx.Q.SetUnderpayment(ctx, sqlc.SetUnderpaymentParams{ID: cur.ID, AmountKop: overdue, PaymentID: &paymentID})
+	case overdue > 0:
+		return tx.Q.InsertUnderpayment(ctx, sqlc.InsertUnderpaymentParams{
+			ContractID: &contractID, PaymentID: &paymentID, AmountKop: overdue, Now: s.clock.Now(),
+		})
+	case exists:
+		_, err := tx.Q.ResolveDiscrepancy(ctx, sqlc.ResolveDiscrepancyParams{
+			ID: cur.ID, Resolution: "auto_closed", Note: ptr("Долг погашен"), Now: s.clock.Now(),
+		})
+		return err
 	}
 	return nil
 }

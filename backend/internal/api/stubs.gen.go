@@ -569,6 +569,10 @@ func (StrictUnimplemented) MarkLineSamePayment(context.Context, MarkLineSamePaym
 	return nil, apperr.NotImplemented()
 }
 
+func (StrictUnimplemented) MovePaymentAdvanceToDeposit(context.Context, MovePaymentAdvanceToDepositRequestObject) (MovePaymentAdvanceToDepositResponseObject, error) {
+	return nil, apperr.NotImplemented()
+}
+
 func (StrictUnimplemented) PatchContract(context.Context, PatchContractRequestObject) (PatchContractResponseObject, error) {
 	return nil, apperr.NotImplemented()
 }

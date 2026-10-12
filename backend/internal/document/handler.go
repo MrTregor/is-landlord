@@ -231,11 +231,15 @@ func (h *Handler) GetDocumentPdf(ctx context.Context, req api.GetDocumentPdfRequ
 	if err != nil {
 		return nil, err
 	}
-	f, fh, err := h.svc.files.Open(ctx, d.FileID)
+	return h.svc.PDF(ctx, d, req.Params.Download != nil && *req.Params.Download == 1)
+}
+
+// PDF — выдача PDF документа (inline или attachment).
+func (s *Service) PDF(ctx context.Context, d sqlc.Document, download bool) (file.Response, error) {
+	f, fh, err := s.files.Open(ctx, d.FileID)
 	if err != nil {
-		return nil, err
+		return file.Response{}, err
 	}
-	download := req.Params.Download != nil && *req.Params.Download == 1
 	return file.Response{File: fh, Name: f.OriginalName, ContentType: f.ContentType, Size: f.SizeBytes, Download: download}, nil
 }
 

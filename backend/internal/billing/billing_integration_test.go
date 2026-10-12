@@ -115,7 +115,7 @@ func byMonth(list []charge, kind, month string) *charge {
 	return nil
 }
 
-// pay вносит проведённый платёж и распределение напрямую в БД (платежи появляются на этапе M6).
+// pay вносит проведённый платёж и распределение напрямую в БД (минуя сервис платежей: проверяются только начисления).
 func pay(t *testing.T, contractID, chargeID string, amount int64, on string) {
 	t.Helper()
 	ctx := context.Background()
@@ -246,7 +246,7 @@ func TestPenalties_TK12_FR05_3(t *testing.T) {
 	assert.Equal(t, "penalty_writeoff", p.Adjustments[1].Kind)
 }
 
-// IT-12 (без расхождения «переплата» — этап M6), R4: расторжение с последним днём 10.11.2026 при оплаченном ноябре →
+// IT-12 (расхождение «переплата» — в пакете payment), R4: расторжение с последним днём 10.11.2026 при оплаченном ноябре →
 // корректировка −18 666,67, отмена декабря, излишек становится авансом (FR-03.2).
 func TestTerminationRecalc_IT12_R4_FR03_2(t *testing.T) {
 	w := setup(t, "2026-11-28", "c3")

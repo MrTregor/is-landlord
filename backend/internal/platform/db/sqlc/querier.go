@@ -33,12 +33,15 @@ type Querier interface {
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
 	CancelAmendment(ctx context.Context, arg CancelAmendmentParams) (ContractAmendment, error)
 	CancelCharge(ctx context.Context, arg CancelChargeParams) error
+	CancelDepositTx(ctx context.Context, arg CancelDepositTxParams) error
 	CancelDraftAmendments(ctx context.Context, arg CancelDraftAmendmentsParams) ([]uuid.UUID, error)
+	CancelPayment(ctx context.Context, arg CancelPaymentParams) error
 	ChargeByKey(ctx context.Context, idempotencyKey *string) (Charge, error)
 	// Распределения на начисление с датами поступления платежей (для расчёта пеней).
 	ChargePayments(ctx context.Context, chargeID uuid.UUID) ([]ChargePaymentsRow, error)
 	// Начисления с сроком в диапазоне (календарь, 05 разд. 13.2).
 	ChargesInRange(ctx context.Context, arg ChargesInRangeParams) ([]ChargesInRangeRow, error)
+	ClearPaymentBankLink(ctx context.Context, id uuid.UUID) error
 	CloseStatusHistory(ctx context.Context, arg CloseStatusHistoryParams) error
 	// Долг, просрочка и начисляемые пени по договорам (карточка, списки).
 	ContractBalances(ctx context.Context, arg ContractBalancesParams) ([]ContractBalancesRow, error)
@@ -70,8 +73,10 @@ type Querier interface {
 	CountCharges(ctx context.Context, arg CountChargesParams) (CountChargesRow, error)
 	CountContractTimeline(ctx context.Context, contractID string) (int64, error)
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
+	CountDiscrepancies(ctx context.Context, arg CountDiscrepanciesParams) (int64, error)
 	CountJobRuns(ctx context.Context, jobName *string) (int64, error)
 	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
+	CountPayments(ctx context.Context, arg CountPaymentsParams) (int64, error)
 	CountProperties(ctx context.Context, arg CountPropertiesParams) (int64, error)
 	CountReadings(ctx context.Context, arg CountReadingsParams) (int64, error)
 	CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error)
@@ -111,6 +116,12 @@ type Querier interface {
 	DeleteTerms(ctx context.Context, contractID uuid.UUID) error
 	// Остаток обеспечительного платежа на дату: внесения минус удержания, зачёты и возвраты (без отменённых).
 	DepositBalanceOn(ctx context.Context, arg DepositBalanceOnParams) (int64, error)
+	DepositOffsetOfPayment(ctx context.Context, paymentID *uuid.UUID) (DepositTransaction, error)
+	DepositOperations(ctx context.Context, contractID uuid.UUID) ([]DepositOperationsRow, error)
+	// Внесение залога, созданное платежом purpose = deposit.
+	DepositReceiptOfPayment(ctx context.Context, paymentID *uuid.UUID) (DepositTransaction, error)
+	// Внесено и остаток залога (без отменённых операций).
+	DepositTotals(ctx context.Context, contractID uuid.UUID) (DepositTotalsRow, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
 	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
 	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
@@ -132,6 +143,9 @@ type Querier interface {
 	// Служебные запросы.
 	// Сдвиг даты системы в демонстрационном режиме (03 Архитектура, «Время и часовой пояс»).
 	GetDemoClockOffset(ctx context.Context) (int64, error)
+	GetDepositTxForUpdate(ctx context.Context, id uuid.UUID) (DepositTransaction, error)
+	GetDiscrepancyForUpdate(ctx context.Context, id uuid.UUID) (Discrepancy, error)
+	GetDiscrepancyRow(ctx context.Context, id uuid.UUID) (GetDiscrepancyRowRow, error)
 	GetDocument(ctx context.Context, id uuid.UUID) (Document, error)
 	GetEmailLog(ctx context.Context, id uuid.UUID) (EmailLog, error)
 	// Письма (FR-10).
@@ -142,6 +156,9 @@ type Querier interface {
 	GetOrganizationSettings(ctx context.Context) (OrganizationSetting, error)
 	// Краткое наименование организации для страницы входа (GET /public/app-info).
 	GetOrganizationShortName(ctx context.Context) (string, error)
+	GetPayment(ctx context.Context, id uuid.UUID) (Payment, error)
+	GetPaymentForUpdate(ctx context.Context, id uuid.UUID) (Payment, error)
+	GetPaymentRow(ctx context.Context, id uuid.UUID) (GetPaymentRowRow, error)
 	GetProperty(ctx context.Context, id uuid.UUID) (Property, error)
 	GetPropertyForUpdate(ctx context.Context, id uuid.UUID) (Property, error)
 	GetReading(ctx context.Context, id uuid.UUID) (GetReadingRow, error)
@@ -169,6 +186,8 @@ type Querier interface {
 	// Автоначисление; повтор с тем же idempotency_key ничего не создаёт (нет строк в ответе).
 	InsertAutoCharge(ctx context.Context, arg InsertAutoChargeParams) (uuid.UUID, error)
 	InsertConsent(ctx context.Context, arg InsertConsentParams) (PdnConsent, error)
+	// Обеспечительный платёж
+	InsertDepositTx(ctx context.Context, arg InsertDepositTxParams) (DepositTransaction, error)
 	InsertDocument(ctx context.Context, arg InsertDocumentParams) (Document, error)
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
 	// Файлы (06 API, раздел 6).
@@ -178,15 +197,24 @@ type Querier interface {
 	InsertLoginAttempt(ctx context.Context, arg InsertLoginAttemptParams) error
 	InsertManualCharge(ctx context.Context, arg InsertManualChargeParams) (uuid.UUID, error)
 	InsertOccupant(ctx context.Context, arg InsertOccupantParams) error
+	// Расхождения
+	// Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает.
+	InsertOverpayment(ctx context.Context, arg InsertOverpaymentParams) error
 	InsertOwnerReading(ctx context.Context, arg InsertOwnerReadingParams) (uuid.UUID, error)
+	// Платежи (FR-06.1), распределения, возвраты переплаты, обеспечительный платёж (FR-05.2), расхождения (FR-07.3).
+	InsertPayment(ctx context.Context, arg InsertPaymentParams) (Payment, error)
+	InsertRefund(ctx context.Context, arg InsertRefundParams) (Refund, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
 	// Условия и проживающие
 	InsertTerms(ctx context.Context, arg InsertTermsParams) (ContractTerm, error)
+	InsertUnderpayment(ctx context.Context, arg InsertUnderpaymentParams) error
 	InvalidateAuthTokens(ctx context.Context, arg InvalidateAuthTokensParams) error
 	// Последнее принятое показание счётчика.
 	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
 	LastAmendmentDocuments(ctx context.Context, ids []uuid.UUID) ([]LastAmendmentDocumentsRow, error)
+	// Последняя неотменённая операция по договору (отменить можно только её, 05 разд. 9.5).
+	LastDepositOperation(ctx context.Context, contractID uuid.UUID) (DepositTransaction, error)
 	// Последний запуск плановой задачи.
 	LastJobRun(ctx context.Context, jobName string) (JobRun, error)
 	// Последний запуск каждой задачи.
@@ -207,11 +235,13 @@ type Querier interface {
 	ListConsents(ctx context.Context, tenantID uuid.UUID) ([]PdnConsent, error)
 	ListContractDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error)
 	ListContracts(ctx context.Context, arg ListContractsParams) ([]ListContractsRow, error)
+	ListDiscrepancies(ctx context.Context, arg ListDiscrepanciesParams) ([]ListDiscrepanciesRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
 	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
 	// Счётчики и тарифы (FR-01.1, FR-05.5).
 	ListMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
 	ListOccupants(ctx context.Context, contractID uuid.UUID) ([]ContractOccupant, error)
+	ListPayments(ctx context.Context, arg ListPaymentsParams) ([]ListPaymentsRow, error)
 	ListProperties(ctx context.Context, arg ListPropertiesParams) ([]Property, error)
 	// Договоры объекта для вкладки «Договоры» карточки объекта.
 	ListPropertyContracts(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyContractsRow, error)
@@ -226,6 +256,8 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	// Блокировка версий вида на время сохранения новой версии.
 	LockTemplateKind(ctx context.Context, kind string) ([]uuid.UUID, error)
+	// Недоплата (05 разд. 10.7): остаток начислений основного долга со сроком не позже даты.
+	MainDebtDueBy(ctx context.Context, arg MainDebtDueByParams) (int64, error)
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
@@ -242,10 +274,28 @@ type Querier interface {
 	NextSequenceValue(ctx context.Context, arg NextSequenceValueParams) (int32, error)
 	// Порядок погашения (05 разд. 10.3, шаги 2–3): основной долг по сроку и виду, затем пени final/manual.
 	OpenChargesForAllocation(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
+	// Открытые расхождения «переплата» договора со статусом платежа (аванс — запросом PaymentAdvance).
+	OpenOverpayments(ctx context.Context, contractID *uuid.UUID) ([]OpenOverpaymentsRow, error)
+	OpenUnderpayment(ctx context.Context, contractID *uuid.UUID) (Discrepancy, error)
+	// Открытые недоплаты для billing.penalties_daily: остаток долга со сроком не позже даты обнаружения.
+	OpenUnderpaymentsAll(ctx context.Context) ([]OpenUnderpaymentsAllRow, error)
 	// Не черновые договоры объекта, пересекающиеся с периодом [from, to] (05 разд. 4.4, п. 3).
 	OverlappingContracts(ctx context.Context, arg OverlappingContractsParams) ([]OverlappingContractsRow, error)
 	// Прямо изменяемые условия действующего договора (05 разд. 4.5).
 	PatchContract(ctx context.Context, arg PatchContractParams) (Contract, error)
+	// Аванс платежа (примечание к схеме 04): сумма − активные распределения − возвраты − переносы в залог.
+	PaymentAdvance(ctx context.Context, id uuid.UUID) (int64, error)
+	// Распределения платежа (активные и отменённые) с начислениями.
+	PaymentAllocations(ctx context.Context, paymentID uuid.UUID) ([]PaymentAllocationsRow, error)
+	PaymentBankLine(ctx context.Context, paymentID *uuid.UUID) (BankStatementLine, error)
+	PaymentFiscalReceipt(ctx context.Context, paymentID *uuid.UUID) (FiscalReceipt, error)
+	// Чек по платежу в статусе done, queued или wait запрещает отмену (05 разд. 10.5).
+	PaymentHasActiveFiscal(ctx context.Context, paymentID *uuid.UUID) (bool, error)
+	// По платежу оформлен возврат переплаты или перенос переплаты в залог.
+	PaymentHasReturns(ctx context.Context, paymentID uuid.UUID) (bool, error)
+	// Действующая квитанция платежа.
+	PaymentReceiptDocument(ctx context.Context, paymentID *uuid.UUID) (Document, error)
+	PaymentRefunds(ctx context.Context, paymentID uuid.UUID) ([]Refund, error)
 	// Платежи договора «за начисления» с авансом > 0 (05 разд. 10.4; аванс вычисляется, примечание к схеме 04).
 	PaymentsWithAdvance(ctx context.Context, contractID uuid.UUID) ([]PaymentsWithAdvanceRow, error)
 	// Пени
@@ -275,8 +325,15 @@ type Querier interface {
 	// paid_kop = сумма активных распределений; статус по оплате (у отменённого не меняется).
 	RefreshChargePaid(ctx context.Context, id uuid.UUID) (Charge, error)
 	RejectReading(ctx context.Context, arg RejectReadingParams) error
+	// Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
+	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) error
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
+	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
+	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
 	ReverseAllocation(ctx context.Context, arg ReverseAllocationParams) error
+	// Отмена всех активных распределений платежа; возвращает затронутые начисления.
+	ReversePaymentAllocations(ctx context.Context, arg ReversePaymentAllocationsParams) ([]uuid.UUID, error)
 	RevokeConsent(ctx context.Context, arg RevokeConsentParams) (PdnConsent, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	// Отзыв всех сессий пользователя, кроме указанной (NULL — всех).
@@ -286,6 +343,7 @@ type Querier interface {
 	SetActDocument(ctx context.Context, arg SetActDocumentParams) error
 	SetAutoEventDone(ctx context.Context, arg SetAutoEventDoneParams) error
 	SetChargeAmount(ctx context.Context, arg SetChargeAmountParams) error
+	SetDiscrepancyAmount(ctx context.Context, arg SetDiscrepancyAmountParams) error
 	SetDocumentSignedScan(ctx context.Context, arg SetDocumentSignedScanParams) (Document, error)
 	SetDocumentVisibility(ctx context.Context, arg SetDocumentVisibilityParams) (Document, error)
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
@@ -296,6 +354,7 @@ type Querier interface {
 	SetPropertyPhotoSort(ctx context.Context, arg SetPropertyPhotoSortParams) error
 	SetPropertyStatus(ctx context.Context, arg SetPropertyStatusParams) error
 	SetStatusHistoryValidTo(ctx context.Context, arg SetStatusHistoryValidToParams) error
+	SetUnderpayment(ctx context.Context, arg SetUnderpaymentParams) error
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
 	// Пересчёт хеша с новыми параметрами argon2id при входе.
 	SetUserPasswordHash(ctx context.Context, arg SetUserPasswordHashParams) error

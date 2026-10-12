@@ -26,9 +26,10 @@ type Detail struct {
 	Balances  Balances
 }
 
-// Balances — суммы по начислениям и платежам договора (залог — с этапа M6).
+// Balances — суммы по начислениям, платежам и залогу договора.
 type Balances struct {
 	DebtKop, OverdueKop, PenaltiesAccruingKop, AdvanceKop int64
+	DepositReceivedKop, DepositBalanceKop                 int64
 }
 
 // Due — ближайший срок оплаты по графику договора.
@@ -126,6 +127,11 @@ func (s *Service) balances(ctx context.Context, q *sqlc.Queries, id uuid.UUID) (
 			b.AdvanceKop += p.AdvanceKop
 		}
 	}
+	dep, err := q.DepositTotals(ctx, id)
+	if err != nil {
+		return b, err
+	}
+	b.DepositReceivedKop, b.DepositBalanceKop = dep.ReceivedKop, dep.BalanceKop
 	return b, nil
 }
 

@@ -321,7 +321,7 @@ func (s *Service) release(ctx context.Context, tx *db.Tx, c sqlc.Contract) error
 }
 
 // Terminate — расторжение (05 разд. 4.7): начисления после месяца последнего дня отменяются, последний месяц
-// пересчитывается; расхождение «переплата» по остатку аванса подключается вместе с платежами (M6).
+// пересчитывается, авансы перераспределяются; при остатке аванса — расхождение «переплата».
 func (s *Service) Terminate(ctx context.Context, id uuid.UUID, last date.Date, initiator, reason string) (sqlc.Contract, error) {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {

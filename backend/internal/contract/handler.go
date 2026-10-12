@@ -107,10 +107,10 @@ func (h *Handler) detailDTO(ctx context.Context, c sqlc.Contract) (api.ContractD
 		},
 		CurrentTerms: termsDTO(h.svc.CurrentTerms(c, d.Terms)), TermsHistory: make([]api.ContractTermsDTO, 0, len(d.Terms)),
 		Occupants: make([]api.OccupantDTO, 0, len(d.Occupants)), Warnings: d.Warnings, ActivationBlockers: d.Blockers.All(),
-		// Залог (внесено, остаток) появляется вместе с платежами на этапе M6.
 		Balances: api.ContractBalances{
 			DebtKop: d.Balances.DebtKop, OverdueKop: d.Balances.OverdueKop, PenaltiesAccruingKop: d.Balances.PenaltiesAccruingKop,
-			AdvanceKop: d.Balances.AdvanceKop, DepositExpectedKop: c.DepositKop,
+			AdvanceKop: d.Balances.AdvanceKop, DepositExpectedKop: c.DepositKop, DepositReceivedKop: d.Balances.DepositReceivedKop,
+			DepositBalanceKop: d.Balances.DepositBalanceKop,
 		},
 	}
 	if c.TerminationInitiator != nil {

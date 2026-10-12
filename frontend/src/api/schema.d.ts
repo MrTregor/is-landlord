@@ -1835,6 +1835,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/payments/{id}/move-to-deposit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Перенести переплату платежа в залог (О)
+         * @description Кнопка «Перенести в залог» в карточке платежа (14 разд. 6.3, 05 разд. 10.6); docs/open-questions.md.
+         */
+        post: operations["movePaymentAdvanceToDeposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/payments/{id}/receipt.pdf": {
         parameters: {
             query?: never;
@@ -4500,6 +4522,12 @@ export interface components {
             opDate: string;
             chargeIds: string[];
             reason: string;
+        };
+        AdvanceToDepositInput: {
+            /** Format: int64 */
+            amountKop: number;
+            /** Format: date */
+            opDate: string;
         };
         DepositRefundInput: {
             /** Format: int64 */
@@ -8377,6 +8405,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RefundDTO"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    movePaymentAdvanceToDeposit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdvanceToDepositInput"];
+            };
+        };
+        responses: {
+            /** @description Операция внесения залога */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DepositOperationDTO"];
                 };
             };
             default: components["responses"]["Problem"];

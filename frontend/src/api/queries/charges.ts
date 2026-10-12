@@ -11,11 +11,13 @@ export type ChargesQuery = NonNullable<operations['listCharges']['parameters']['
 export type Reading = S['MeterReadingDTO']
 export type ReadingsQuery = NonNullable<operations['listMeterReadings']['parameters']['query']>
 
-export function useCharges(params: MaybeRefOrGetter<ChargesQuery>) {
+/** Список начислений; enabled — загружать ли (например, только при открытом диалоге). */
+export function useCharges(params: MaybeRefOrGetter<ChargesQuery>, enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
     queryKey: ['charges', 'list', params],
     queryFn: () => unwrap(api.GET('/charges', { params: { query: toValue(params) } })),
     placeholderData: keepPreviousData,
+    enabled: () => toValue(enabled),
   })
 }
 

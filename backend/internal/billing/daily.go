@@ -9,6 +9,7 @@ import (
 
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/platform/db"
+	"landlord/backend/internal/platform/db/sqlc"
 	"landlord/backend/internal/platform/jobs"
 )
 
@@ -124,8 +125,8 @@ func (s *Service) RunRentDaily(ctx context.Context, args jobs.DailyArgs) (*jobs.
 	})
 }
 
-// RunPenaltiesDaily — создание и пересчёт пеней (05 разд. 7.3). Закрытие расхождений «недоплата» подключается
-// вместе с платежами (этап M6).
+// RunPenaltiesDaily — создание и пересчёт пеней (05 разд. 7.3); закрытие расхождений «недоплата», долг по которым
+// погашен (05 разд. 10.7).
 func (s *Service) RunPenaltiesDaily(ctx context.Context, args jobs.DailyArgs) (*jobs.Stats, error) {
 	today := args.BusinessDate
 	if today.IsZero() {
@@ -166,6 +167,9 @@ func (s *Service) RunPenaltiesDaily(ctx context.Context, args jobs.DailyArgs) (*
 				st.Fail("договор "+contractID.String(), err)
 			}
 		}
+		if err := s.closePaidUnderpayments(ctx, st); err != nil {
+			return err
+		}
 		return s.db.WithTx(ctx, func(tx *db.Tx) error {
 			return s.audit.Record(ctx, tx.Q, audit.Entry{
 				Action: "job." + PenaltiesJobName, EntityType: "job", EntityID: PenaltiesJobName,
@@ -175,4 +179,30 @@ func (s *Service) RunPenaltiesDaily(ctx context.Context, args jobs.DailyArgs) (*
 			})
 		})
 	})
+}
+
+// closePaidUnderpayments — открытые расхождения «недоплата», долг по которым (срок не позже даты обнаружения)
+// погашен, закрываются auto_closed.
+func (s *Service) closePaidUnderpayments(ctx context.Context, st *jobs.Stats) error {
+	list, err := s.db.Queries().OpenUnderpaymentsAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range list {
+		if d.DebtKop > 0 {
+			continue
+		}
+		err := s.db.WithTx(ctx, func(tx *db.Tx) error {
+			_, err := tx.Q.ResolveDiscrepancy(ctx, sqlc.ResolveDiscrepancyParams{
+				ID: d.ID, Resolution: "auto_closed", Note: ptr("Долг погашен"), Now: s.clock.Now(),
+			})
+			return err
+		})
+		if err != nil {
+			st.Fail("расхождение "+d.ID.String(), err)
+			continue
+		}
+		st.Inc("underpaymentsClosed")
+	}
+	return nil
 }

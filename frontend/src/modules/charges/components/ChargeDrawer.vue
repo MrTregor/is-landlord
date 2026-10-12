@@ -165,7 +165,8 @@ const pending = computed(
         <h4>Распределения платежей</h4>
         <p v-if="!c.allocations.length" class="hint">Оплат нет</p>
         <div v-for="a in c.allocations" :key="a.paymentId + a.amountKop" class="row">
-          <span>{{ a.receiptNumber ?? 'платёж' }} от {{ formatDate(a.receivedOn) }}</span>
+          <RouterLink :to="`/payments/${a.paymentId}`">{{ a.receiptNumber ?? 'платёж' }}</RouterLink>
+          <span>от {{ formatDate(a.receivedOn) }}</span>
           <MoneyText :kop="a.amountKop" />
         </div>
       </section>

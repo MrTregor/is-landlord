@@ -4,6 +4,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
@@ -49,6 +50,14 @@ type Email struct {
 	// RelatedType и RelatedID — сущность, к которой относится письмо (журнал отправки, обезличивание).
 	RelatedType string
 	RelatedID   *uuid.UUID
+	// Attachments — вложения (файлы системы).
+	Attachments []Attachment
+}
+
+// Attachment — вложение письма: файл и имя (email_log.attachments).
+type Attachment struct {
+	FileID uuid.UUID `json:"fileId"`
+	Name   string    `json:"name"`
 }
 
 // Service — постановка писем.
@@ -88,8 +97,16 @@ func (s *Service) Queue(ctx context.Context, tx *db.Tx, e Email) error {
 	if to == "" {
 		to = "—"
 	}
+	atts := e.Attachments
+	if atts == nil {
+		atts = []Attachment{}
+	}
+	attJSON, err := json.Marshal(atts)
+	if err != nil {
+		return err
+	}
 	params := sqlc.InsertEmailLogParams{
-		TemplateCode: e.Code, ToEmail: to, Subject: subject, BodyHtml: body, Attachments: []byte("[]"),
+		TemplateCode: e.Code, ToEmail: to, Subject: subject, BodyHtml: body, Attachments: attJSON,
 		Status: status, DedupeKey: e.DedupeKey, RelatedEntityID: e.RelatedID, CreatedAt: s.clock.Now(),
 	}
 	if e.RelatedType != "" {

@@ -9,17 +9,19 @@ import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import { useTenantMutations } from '@/api/queries/tenants'
 import MoneyText from '@/components/MoneyText.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import PlannedTab from '@/components/PlannedTab.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { formatDate } from '@/utils/date'
 import { contractStatusLabels, contractStatusSeverity, legalBasisLabels } from '@/utils/labels'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import PaymentDialog from '@/modules/payments/components/PaymentDialog.vue'
 import ActivateDialog from '../components/ActivateDialog.vue'
 import ActsTab from '../components/ActsTab.vue'
 import AmendmentsTab from '../components/AmendmentsTab.vue'
 import ChargesTab from '../components/ChargesTab.vue'
+import DepositTab from '../components/DepositTab.vue'
 import DocumentsTab from '../components/DocumentsTab.vue'
+import PaymentsTab from '../components/PaymentsTab.vue'
 import ReconciliationDialog from '../components/ReconciliationDialog.vue'
 import TerminateDialog from '../components/TerminateDialog.vue'
 import TermsTab from '../components/TermsTab.vue'
@@ -42,8 +44,8 @@ const closed = computed(() => c.value?.status === 'terminated' || c.value?.statu
 const tabs = [
   { value: 'terms', label: 'Условия' },
   { value: 'charges', label: 'Начисления' },
-  { value: 'payments', label: 'Платежи', stage: 'M6' },
-  { value: 'deposit', label: 'Залог', stage: 'M6' },
+  { value: 'payments', label: 'Платежи' },
+  { value: 'deposit', label: 'Залог' },
   { value: 'documents', label: 'Документы' },
   { value: 'amendments', label: 'Допсоглашения' },
   { value: 'acts', label: 'Акты' },
@@ -111,6 +113,7 @@ async function contractPdf() {
 }
 
 const reconDialog = ref(false)
+const paymentDialog = ref(false)
 const moreMenu = ref()
 const moreItems = computed(() => [
   { label: 'Сформировать договор заново', icon: 'pi pi-file-pdf', command: contractPdf },
@@ -142,7 +145,7 @@ const moreItems = computed(() => [
             <Button label="Удалить черновик" icon="pi pi-trash" severity="danger" outlined @click="deleteDraft" />
           </template>
           <template v-else-if="live">
-            <Button label="Зарегистрировать платёж" icon="pi pi-wallet" outlined disabled title="Платежи — этап M6" />
+            <Button label="Зарегистрировать платёж" icon="pi pi-wallet" outlined @click="paymentDialog = true" />
             <Button label="Допсоглашение" icon="pi pi-file-edit" outlined @click="newAmendment" />
             <Button label="Акт возврата" icon="pi pi-replay" outlined @click="returnAct" />
             <Button label="Расторгнуть" icon="pi pi-times" severity="danger" outlined @click="terminateDialog = true" />
@@ -150,7 +153,7 @@ const moreItems = computed(() => [
             <Menu ref="moreMenu" :model="moreItems" popup />
           </template>
           <template v-else-if="closed">
-            <Button label="Зарегистрировать платёж" icon="pi pi-wallet" outlined disabled title="Платежи — этап M6" />
+            <Button label="Зарегистрировать платёж" icon="pi pi-wallet" outlined @click="paymentDialog = true" />
             <Button
               label="Взаиморасчёт"
               icon="pi pi-calculator"
@@ -225,6 +228,8 @@ const moreItems = computed(() => [
         <TabPanels>
           <TabPanel value="terms"><TermsTab :contract="c" /></TabPanel>
           <TabPanel value="charges"><ChargesTab v-if="tab === 'charges'" :contract="c" /></TabPanel>
+          <TabPanel value="payments"><PaymentsTab v-if="tab === 'payments'" :contract="c" /></TabPanel>
+          <TabPanel value="deposit"><DepositTab v-if="tab === 'deposit'" :contract="c" /></TabPanel>
           <TabPanel value="amendments">
             <AmendmentsTab v-if="tab === 'amendments'" :contract="c" :create-signal="amendmentSignal" />
           </TabPanel>
@@ -233,15 +238,13 @@ const moreItems = computed(() => [
           /></TabPanel>
           <TabPanel value="documents"><DocumentsTab v-if="tab === 'documents'" :contract="c" /></TabPanel>
           <TabPanel value="timeline"><TimelineTab v-if="tab === 'timeline'" :contract-id="c.id" /></TabPanel>
-          <template v-for="t in tabs" :key="t.value">
-            <TabPanel v-if="t.stage" :value="t.value"><PlannedTab :stage="t.stage" /></TabPanel>
-          </template>
         </TabPanels>
       </Tabs>
 
       <ActivateDialog v-model:visible="activateDialog" :contract="c" />
       <TerminateDialog v-if="live" v-model:visible="terminateDialog" :contract="c" />
       <ReconciliationDialog v-if="c.status !== 'draft'" v-model:visible="reconDialog" :contract="c" />
+      <PaymentDialog v-if="c.status !== 'draft'" v-model:visible="paymentDialog" :contract-id="c.id" />
     </template>
   </div>
 </template>

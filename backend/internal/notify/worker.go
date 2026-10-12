@@ -2,13 +2,17 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/riverqueue/river"
 
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
+	"landlord/backend/internal/platform/files"
 	"landlord/backend/internal/platform/mailer"
 	"landlord/backend/internal/platform/tmpl"
 )
@@ -20,6 +24,8 @@ type EmailSendWorker struct {
 	DB     *db.DB
 	Clock  clock.Clock
 	Sender mailer.Sender
+	// Files — хранилище файлов для вложений.
+	Files *files.Store
 }
 
 // Work отправляет письмо.
@@ -39,8 +45,14 @@ func (w *EmailSendWorker) Work(ctx context.Context, job *river.Job[EmailSendArgs
 	if org, err := q.GetOrganizationSettings(ctx); err == nil {
 		replyTo = org.Email
 	}
+	atts, closeAll, err := w.attachments(ctx, q, m.Attachments)
+	if err != nil {
+		return err
+	}
+	defer closeAll()
 	sendErr := w.Sender.Send(ctx, mailer.Message{
 		To: m.ToEmail, ReplyTo: replyTo, Subject: m.Subject, HTML: m.BodyHtml, Text: tmpl.PlainText(m.BodyHtml),
+		Attachments: atts,
 	})
 	if sendErr == nil {
 		now := w.Clock.Now()
@@ -55,4 +67,37 @@ func (w *EmailSendWorker) Work(ctx context.Context, job *river.Job[EmailSendArgs
 		return err
 	}
 	return sendErr
+}
+
+// attachments открывает файлы вложений письма; closeAll закрывает их после отправки.
+func (w *EmailSendWorker) attachments(ctx context.Context, q *sqlc.Queries, raw []byte) ([]mailer.Attachment, func(), error) {
+	var list []Attachment
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, func() {}, err
+		}
+	}
+	var out []mailer.Attachment
+	var opened []*os.File
+	closeAll := func() {
+		for _, f := range opened {
+			_ = f.Close()
+		}
+	}
+	for _, a := range list {
+		if w.Files == nil {
+			return nil, closeAll, errors.New("хранилище файлов не задано — вложение не отправить")
+		}
+		f, err := q.GetFile(ctx, a.FileID)
+		if err != nil {
+			return nil, closeAll, fmt.Errorf("вложение %s: %w", a.FileID, err)
+		}
+		fh, err := w.Files.Open(f.StorageKey)
+		if err != nil {
+			return nil, closeAll, fmt.Errorf("вложение %s: %w", a.FileID, err)
+		}
+		opened = append(opened, fh)
+		out = append(out, mailer.Attachment{Name: a.Name, ContentType: f.ContentType, Data: fh})
+	}
+	return out, closeAll, nil
 }

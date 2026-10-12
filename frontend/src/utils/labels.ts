@@ -84,6 +84,49 @@ export const paymentStatusLabels: Record<S['PaymentStatus'], string> = {
   cancelled: 'Отменён',
 }
 
+export const paymentPurposeLabels: Record<S['PaymentPurpose'], string> = {
+  charges: 'Начисления',
+  deposit: 'Залог',
+}
+
+/** Назначение в диалоге регистрации платежа (14 разд. 6.2). */
+export const paymentPurposeFormLabels: Record<S['PaymentPurpose'], string> = {
+  charges: 'Оплата начислений',
+  deposit: 'Обеспечительный платёж',
+}
+
+export const paymentSourceLabels: Record<S['PaymentSource'], string> = {
+  online: 'Онлайн',
+  manual: 'Вручную',
+  bank_import: 'Выписка',
+  deposit_offset: 'Зачёт залога',
+}
+
+export const manualPaymentMethodLabels: Record<S['ManualPaymentMethod'], string> = {
+  bank_transfer: 'Перевод на счёт',
+  cash: 'Наличные',
+}
+
+export const refundMethodLabels: Record<S['RefundMethod'], string> = {
+  bank_transfer: 'Перевод на счёт',
+  cash: 'Наличные',
+}
+
+export const discrepancyStatusLabels: Record<S['DiscrepancyStatus'], string> = {
+  open: 'Открытые',
+  resolved: 'Решённые',
+}
+
+export const discrepancyResolutionLabels: Record<S['DiscrepancyResolution'], string> = {
+  linked: 'Привязан к договору',
+  refunded: 'Возвращено',
+  kept_as_advance: 'Оставлено авансом',
+  moved_to_deposit: 'Перенесено в залог',
+  acknowledged: 'Принято к сведению',
+  ignored: 'Не относится к аренде',
+  auto_closed: 'Закрыто автоматически',
+}
+
 export const depositOperationLabels: Record<S['DepositOperationKind'], string> = {
   receipt: 'Внесение',
   withholding: 'Удержание',

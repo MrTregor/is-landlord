@@ -7,11 +7,13 @@ import (
 	"github.com/google/uuid"
 
 	"landlord/backend/internal/api"
+	"landlord/backend/internal/billing/calc"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
+	"landlord/backend/internal/platform/money"
 	"landlord/backend/internal/platform/names"
 )
 
@@ -116,6 +118,33 @@ func (h *Handler) detail(ctx context.Context, id uuid.UUID) (api.ChargeDetail, e
 		}
 	}
 	return d, nil
+}
+
+// OpenChargeDTOs — открытые начисления договора в порядке погашения (05 разд. 10.3), без начисляемых пеней
+// (взаиморасчёт, диалог зачёта залога).
+func (s *Service) OpenChargeDTOs(ctx context.Context, contractID uuid.UUID) ([]api.ChargeDTO, error) {
+	today := s.clock.Today()
+	rows, err := s.db.Queries().ListCharges(ctx, sqlc.ListChargesParams{
+		ContractID: &contractID, Kinds: []string{}, Statuses: []string{"open", "partially_paid"}, Today: today, Lim: 1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	list := make([]calc.OpenCharge, 0, len(rows))
+	byID := make(map[uuid.UUID]row, len(rows))
+	for i, r := range rows {
+		oc := calc.OpenCharge{ID: r.ID, Kind: r.Kind, DueDate: r.DueDate, Seq: i, Outstanding: money.Kop(r.AmountKop - r.PaidKop)}
+		if r.PenaltyState != nil {
+			oc.PenaltyState = *r.PenaltyState
+		}
+		list = append(list, oc)
+		byID[r.ID] = r
+	}
+	out := []api.ChargeDTO{}
+	for _, oc := range calc.AllocationOrder(list, nil) {
+		out = append(out, toDTO(byID[oc.ID], today))
+	}
+	return out, nil
 }
 
 // ListCharges — GET /charges.

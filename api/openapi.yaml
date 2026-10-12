@@ -1988,6 +1988,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RefundDTO" }
         default: { $ref: "#/components/responses/Problem" }
+  /payments/{id}/move-to-deposit:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Платежи]
+      operationId: movePaymentAdvanceToDeposit
+      summary: Перенести переплату платежа в залог (О)
+      description: Кнопка «Перенести в залог» в карточке платежа (14 разд. 6.3, 05 разд. 10.6); docs/open-questions.md.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdvanceToDepositInput" }
+      responses:
+        "201":
+          description: Операция внесения залога
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DepositOperationDTO" }
+        default: { $ref: "#/components/responses/Problem" }
   /payments/{id}/receipt.pdf:
     parameters:
       - { $ref: "#/components/parameters/Id" }
@@ -5141,6 +5161,12 @@ components:
           type: array
           items: { type: string, format: uuid }
         reason: { type: string, minLength: 1, maxLength: 1000 }
+    AdvanceToDepositInput:
+      type: object
+      required: [amountKop, opDate]
+      properties:
+        amountKop: { type: integer, format: int64, minimum: 1 }
+        opDate: { type: string, format: date }
     DepositRefundInput:
       type: object
       required: [amountKop, opDate, method, reason]
