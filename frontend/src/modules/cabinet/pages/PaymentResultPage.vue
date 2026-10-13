@@ -15,8 +15,7 @@ const timedOut = ref(false)
 const timer = setTimeout(() => (timedOut.value = true), POLL_MS)
 onBeforeUnmount(() => clearTimeout(timer))
 
-const polling = computed(() => !timedOut.value && (!status.data.value || status.data.value.status === 'pending'))
-const status = useCabinetPaymentStatus(id, polling)
+const status = useCabinetPaymentStatus(id, timedOut)
 const p = computed(() => status.data.value)
 
 // «Попробовать снова» — новая оплата тем же составом (15 разд. 3).

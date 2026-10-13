@@ -32,12 +32,18 @@ export function useCabinetPayments(contractId: MaybeRefOrGetter<string | undefin
   })
 }
 
-/** Статус платежа для страницы возврата из оплаты: опрос каждые 2 с, пока платёж не завершён (15 разд. 3). */
-export function useCabinetPaymentStatus(id: MaybeRefOrGetter<string>, polling: MaybeRefOrGetter<boolean>) {
+/**
+ * Статус платежа для страницы возврата из оплаты (15 разд. 3): опрос каждые 2 с, пока платёж pending
+ * и не истекло время ожидания (stopped).
+ */
+export function useCabinetPaymentStatus(id: MaybeRefOrGetter<string>, stopped: MaybeRefOrGetter<boolean>) {
   return useQuery({
     queryKey: ['cabinet', 'payment', id],
     queryFn: () => unwrap(api.GET('/cabinet/payments/{id}', { params: { path: { id: toValue(id) } } })),
-    refetchInterval: () => (toValue(polling) ? 2000 : false),
+    refetchInterval: (q) => {
+      const data = q.state.data
+      return !toValue(stopped) && (!data || data.status === 'pending') ? 2000 : false
+    },
   })
 }
 
