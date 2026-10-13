@@ -1,40 +1,81 @@
-// Эмулятор tbank (docs/spec/08 Интеграции и эмуляторы.md). На этапе M0 — каркас:
-// проверка доступности и титульная страница; протокол реализуется на этапе M7.
+// Эмулятор Т-Банк эквайринга (docs/spec/08 Интеграции и эмуляторы.md, раздел 2): Init, GetState, страница оплаты
+// (карта, СБП, отказ), уведомления с повторами, экран платежей и служебные действия для демонстрации.
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+	_ "time/tzdata" // Europe/Moscow в образе distroless
 )
 
-const banner = "Учебный эмулятор Т-Банк эквайринга. Деньги не списываются"
+func getenv(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
 
-func newMux() *http.ServeMux {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\"><title>" + banner + "</title>" +
-			"<body style=\"font-family:system-ui,sans-serif\"><div style=\"background:#fde68a;padding:8px\">" + banner +
-			"</div><p>Эмулятор будет реализован на этапе M7.</p></body></html>"))
-	})
-	return mux
+// parseTerminals — «ключ:пароль,ключ2:пароль2».
+func parseTerminals(s string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, pass, ok := strings.Cut(part, ":")
+		if !ok || key == "" || pass == "" {
+			return nil, fmt.Errorf("TERMINALS: ожидается «ключ:пароль», получено %q", part)
+		}
+		out[key] = pass
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("TERMINALS: не задан ни один терминал")
+	}
+	return out, nil
+}
+
+// parseRetry — «0s,10s,30s» → смещения попыток от первой.
+func parseRetry(s string) ([]time.Duration, error) {
+	var out []time.Duration
+	for _, part := range strings.Split(s, ",") {
+		d, err := time.ParseDuration(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("NOTIFY_RETRY: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 func main() {
-	addr := os.Getenv("MOCK_ADDR")
-	if addr == "" {
-		addr = ":8081"
+	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	terminals, err := parseTerminals(getenv("TERMINALS", "LandlordDemo:demo-terminal-password"))
+	if err != nil {
+		log.Error(err.Error())
+		os.Exit(1)
 	}
-	srv := &http.Server{Addr: addr, Handler: newMux(), ReadHeaderTimeout: 10 * time.Second}
-	slog.Info("эмулятор запущен", slog.String("addr", addr))
+	retry, err := parseRetry(getenv("NOTIFY_RETRY", "0s,10s,30s,60s,120s,300s"))
+	if err != nil {
+		log.Error(err.Error())
+		os.Exit(1)
+	}
+	cfg := Config{PublicURL: getenv("MOCK_PUBLIC_URL", "http://localhost:8081"), Terminals: terminals, Retry: retry,
+		StateFile: getenv("STATE_FILE", "/data/tbank-state.json")}
+	store, err := NewStore(cfg.StateFile)
+	if err != nil {
+		log.Error("состояние эмулятора", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	addr := getenv("MOCK_ADDR", ":8081")
+	srv := &http.Server{Addr: addr, Handler: NewServer(cfg, store, log).Handler(), ReadHeaderTimeout: 10 * time.Second}
+	log.Info("эмулятор Т-Банка запущен", slog.String("addr", addr), slog.String("public", cfg.PublicURL))
 	if err := srv.ListenAndServe(); err != nil {
-		slog.Error("эмулятор остановлен", slog.String("error", err.Error()))
+		log.Error("эмулятор остановлен", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 }

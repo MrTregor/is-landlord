@@ -6,6 +6,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"landlord/backend/internal/platform/date"
@@ -22,6 +23,8 @@ type Querier interface {
 	// Активные распределения на начисление, последние первыми (отмена излишка — с последних по времени).
 	ActiveAllocations(ctx context.Context, chargeID uuid.UUID) ([]ActiveAllocationsRow, error)
 	ActiveOwnerUsers(ctx context.Context) ([]ActiveOwnerUsersRow, error)
+	// Незавершённая онлайн-оплата договора (карточка «К оплате» кабинета).
+	ActivePendingPayment(ctx context.Context, arg ActivePendingPaymentParams) (Payment, error)
 	ActivePropertyMeters(ctx context.Context, propertyID uuid.UUID) ([]Meter, error)
 	ActiveTemplate(ctx context.Context, kind string) (DocumentTemplate, error)
 	// Шаблоны документов и документы (FR-04, docs/spec/09 Документы и шаблоны.md).
@@ -31,6 +34,8 @@ type Querier interface {
 	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
+	// Платежи договора, видимые нанимателю: проведённые и незавершённые онлайн (06 разд. 15).
+	CabinetPayments(ctx context.Context, contractID uuid.UUID) ([]CabinetPaymentsRow, error)
 	CancelAmendment(ctx context.Context, arg CancelAmendmentParams) (ContractAmendment, error)
 	CancelCharge(ctx context.Context, arg CancelChargeParams) error
 	CancelDepositTx(ctx context.Context, arg CancelDepositTxParams) error
@@ -122,12 +127,15 @@ type Querier interface {
 	DepositReceiptOfPayment(ctx context.Context, paymentID *uuid.UUID) (DepositTransaction, error)
 	// Внесено и остаток залога (без отменённых операций).
 	DepositTotals(ctx context.Context, contractID uuid.UUID) (DepositTotalsRow, error)
+	// Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
+	ExpiredPendingPayments(ctx context.Context, now *time.Time) ([]Payment, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
 	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
 	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
 	FailedAttemptsByIP(ctx context.Context, arg FailedAttemptsByIPParams) (int32, error)
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
+	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
 	GetAct(ctx context.Context, id uuid.UUID) (ContractAct, error)
 	GetActForUpdate(ctx context.Context, id uuid.UUID) (ContractAct, error)
 	GetAmendment(ctx context.Context, id uuid.UUID) (ContractAmendment, error)
@@ -173,6 +181,7 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByTenantID(ctx context.Context, tenantID *uuid.UUID) (User, error)
+	GetWebhookEvent(ctx context.Context, id uuid.UUID) (WebhookEvent, error)
 	// Есть ли на дату действующий (не черновой и не завершённый раньше) договор по объекту.
 	HasActiveContractOn(ctx context.Context, arg HasActiveContractOnParams) (bool, error)
 	HasIndexationAmendment(ctx context.Context, arg HasIndexationAmendmentParams) (bool, error)
@@ -203,12 +212,16 @@ type Querier interface {
 	InsertOwnerReading(ctx context.Context, arg InsertOwnerReadingParams) (uuid.UUID, error)
 	// Платежи (FR-06.1), распределения, возвраты переплаты, обеспечительный платёж (FR-05.2), расхождения (FR-07.3).
 	InsertPayment(ctx context.Context, arg InsertPaymentParams) (Payment, error)
+	// Онлайн-оплата (FR-06.1, 08 разд. 1)
+	InsertPendingPayment(ctx context.Context, arg InsertPendingPaymentParams) (Payment, error)
 	InsertRefund(ctx context.Context, arg InsertRefundParams) (Refund, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
 	// Условия и проживающие
 	InsertTerms(ctx context.Context, arg InsertTermsParams) (ContractTerm, error)
 	InsertUnderpayment(ctx context.Context, arg InsertUnderpaymentParams) error
+	// Уведомление сохраняется один раз (уникальный ключ); повтор — нет строк в ответе (NFR-Rel-02).
+	InsertWebhookEvent(ctx context.Context, arg InsertWebhookEventParams) (uuid.UUID, error)
 	InvalidateAuthTokens(ctx context.Context, arg InvalidateAuthTokensParams) error
 	// Последнее принятое показание счётчика.
 	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
@@ -331,6 +344,8 @@ type Querier interface {
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
 	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
+	// Неистёкшая начатая оплата с той же суммой и составом (06 разд. 15, POST /cabinet/payments).
+	ReusablePendingPayment(ctx context.Context, arg ReusablePendingPaymentParams) (Payment, error)
 	ReverseAllocation(ctx context.Context, arg ReverseAllocationParams) error
 	// Отмена всех активных распределений платежа; возвращает затронутые начисления.
 	ReversePaymentAllocations(ctx context.Context, arg ReversePaymentAllocationsParams) ([]uuid.UUID, error)
@@ -349,10 +364,13 @@ type Querier interface {
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
 	SetEventNotes(ctx context.Context, arg SetEventNotesParams) error
 	SetNextIndexation(ctx context.Context, arg SetNextIndexationParams) error
+	SetPaymentFailed(ctx context.Context, arg SetPaymentFailedParams) error
+	SetPaymentInit(ctx context.Context, arg SetPaymentInitParams) error
 	SetPenaltyManual(ctx context.Context, arg SetPenaltyManualParams) error
 	SetPropertyArchived(ctx context.Context, arg SetPropertyArchivedParams) (Property, error)
 	SetPropertyPhotoSort(ctx context.Context, arg SetPropertyPhotoSortParams) error
 	SetPropertyStatus(ctx context.Context, arg SetPropertyStatusParams) error
+	SetProviderStatus(ctx context.Context, arg SetProviderStatusParams) error
 	SetStatusHistoryValidTo(ctx context.Context, arg SetStatusHistoryValidToParams) error
 	SetUnderpayment(ctx context.Context, arg SetUnderpaymentParams) error
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
@@ -364,6 +382,7 @@ type Querier interface {
 	// Статусы объекта по договору (05 разд. 4.4, 4.7, 4.8)
 	// Записи истории объекта, пересекающие дату и позже (для постановки «Сдан» с даты начала).
 	StatusHistoryFrom(ctx context.Context, arg StatusHistoryFromParams) ([]PropertyStatusHistory, error)
+	SucceedPayment(ctx context.Context, arg SucceedPaymentParams) (Payment, error)
 	// Повторное формирование: прежние документы того же предмета получают ссылку на новый.
 	SupersedeDocuments(ctx context.Context, arg SupersedeDocumentsParams) error
 	SystemTemplate(ctx context.Context, kind string) (DocumentTemplate, error)
@@ -373,6 +392,9 @@ type Querier interface {
 	// Наниматель видит свои загрузки, фото своих заявок, видимые документы своих договоров (и свои согласия)
 	// и фото объектов своих договоров (12 Безопасность и ПДн, раздел 3).
 	TenantCanReadFile(ctx context.Context, arg TenantCanReadFileParams) (bool, error)
+	// Личный кабинет нанимателя (FR-13, 06 разд. 15): только договоры нанимателя пользователя.
+	// Договоры нанимателя (без черновиков): сначала действующие, затем по дате начала, новые первыми.
+	TenantContracts(ctx context.Context, tenantID uuid.UUID) ([]TenantContractsRow, error)
 	TerminateContract(ctx context.Context, arg TerminateContractParams) (Contract, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateAct(ctx context.Context, arg UpdateActParams) (ContractAct, error)

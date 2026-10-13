@@ -116,6 +116,11 @@ func (r Response) VisitGetFileResponse(w http.ResponseWriter) error { return r.w
 // VisitGetDocumentPdfResponse реализует ответ GET /documents/{id}/pdf.
 func (r Response) VisitGetDocumentPdfResponse(w http.ResponseWriter) error { return r.write(w) }
 
+// VisitGetCabinetPaymentReceiptPdfResponse реализует ответ GET /cabinet/payments/{id}/receipt.pdf.
+func (r Response) VisitGetCabinetPaymentReceiptPdfResponse(w http.ResponseWriter) error {
+	return r.write(w)
+}
+
 // VisitGetPaymentReceiptPdfResponse реализует ответ GET /payments/{id}/receipt.pdf.
 func (r Response) VisitGetPaymentReceiptPdfResponse(w http.ResponseWriter) error { return r.write(w) }
 

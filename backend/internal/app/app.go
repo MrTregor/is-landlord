@@ -10,6 +10,7 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/auth"
 	"landlord/backend/internal/billing"
+	"landlord/backend/internal/cabinet"
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
@@ -26,6 +27,7 @@ import (
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/mailer"
 	"landlord/backend/internal/platform/pdf"
+	"landlord/backend/internal/platform/tbank"
 	"landlord/backend/internal/property"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
@@ -95,7 +97,10 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Documents = document.NewService(database, a.Audit, clk, a.Settings, a.Tenants, a.Files, conv, cfg.AppPublicURL)
 	a.Contract = contract.NewService(database, a.Audit, clk, a.Tenants, a.Settings, a.Notify, a.Billing, a.Documents)
 	a.Calendar = calendar.NewService(database, a.Audit, clk)
-	a.Payments = payment.NewService(database, a.Audit, clk, a.Billing, a.Documents, a.Notify, client)
+	a.Payments = payment.NewService(database, a.Audit, clk, a.Billing, a.Documents, a.Notify, client, payment.Online{
+		Client:          tbank.NewClient(cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword),
+		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log,
+	})
 	return a, nil
 }
 
@@ -118,7 +123,8 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Document: document.NewHandler(a.Documents),
 			Billing:  billing.NewHandler(a.Billing),
 			Payments: payment.NewHandler(a.Payments),
-			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, Daily()),
+			Cabinet:  cabinet.NewHandler(a.DB, a.Clock, a.Payments, a.Documents),
+			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...)),
 		},
 	})
 }
@@ -126,6 +132,11 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 // Daily — реализованные ежедневные задачи в порядке выполнения (07 Фоновые задачи).
 func Daily() []jobs.Daily {
 	return []jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily()}
+}
+
+// Periodic — реализованные плановые задачи не ежедневного расписания (07 Фоновые задачи).
+func Periodic() []jobs.Daily {
+	return []jobs.Daily{payment.ExpireHourly()}
 }
 
 // Workers — воркеры фоновых задач процесса worker.
@@ -137,7 +148,9 @@ func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	jobs.Add(reg, &billing.PenaltiesWorker{Svc: a.Billing})
 	jobs.Add(reg, &contract.IndexationWorker{Svc: a.Contract})
 	jobs.Add(reg, &payment.ReceiptWorker{Svc: a.Payments})
-	for _, d := range Daily() {
+	jobs.Add(reg, &payment.NotificationWorker{Svc: a.Payments})
+	jobs.Add(reg, &payment.ExpireWorker{Svc: a.Payments})
+	for _, d := range append(Daily(), Periodic()...) {
 		reg.AddDaily(d, a.Clock)
 	}
 	return reg

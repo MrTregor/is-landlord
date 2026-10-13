@@ -2008,6 +2008,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DepositOperationDTO" }
         default: { $ref: "#/components/responses/Problem" }
+  /payments/{id}/check-status:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [Платежи]
+      operationId: checkPaymentStatus
+      summary: Проверить статус онлайн-оплаты в банке (О)
+      description: Кнопка «Проверить статус» у платежа pending (08 разд. 1.6, 14 разд. 6.3); docs/open-questions.md.
+      responses:
+        "200":
+          description: Платёж
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentDetail" }
+        default: { $ref: "#/components/responses/Problem" }
   /payments/{id}/receipt.pdf:
     parameters:
       - { $ref: "#/components/parameters/Id" }
@@ -6126,12 +6141,18 @@ components:
         paymentUrl: { type: string }
     CabinetPaymentStatus:
       type: object
-      required: [id, status, amountKop, receiptNumber]
+      required: [id, status, amountKop, receiptNumber, contractId, purpose, chargeIds]
       properties:
         id: { type: string, format: uuid }
+        contractId: { type: string, format: uuid }
         status: { $ref: "#/components/schemas/PaymentStatus" }
         amountKop: { $ref: "#/components/schemas/Kop" }
         receiptNumber: { type: [string, "null"] }
+        purpose: { $ref: "#/components/schemas/PaymentPurpose" }
+        chargeIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Начисления оплаты — для «Попробовать снова» тем же составом (15 разд. 3)
     CabinetMeterReading:
       type: object
       required: [periodMonth, value, status, rejectReason]

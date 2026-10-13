@@ -47,13 +47,14 @@ type Service struct {
 	documents *document.Service
 	notify    *notify.Service
 	jobs      notify.Inserter
+	online    Online
 }
 
 // NewService создаёт сервис платежей.
 func NewService(database *db.DB, au *audit.Service, clk clock.Clock, bl *billing.Service, docs *document.Service,
-	nt *notify.Service, ins notify.Inserter,
+	nt *notify.Service, ins notify.Inserter, online Online,
 ) *Service {
-	return &Service{db: database, audit: au, clock: clk, billing: bl, documents: docs, notify: nt, jobs: ins}
+	return &Service{db: database, audit: au, clock: clk, billing: bl, documents: docs, notify: nt, jobs: ins, online: online}
 }
 
 func actorID(ctx context.Context) *uuid.UUID {
@@ -149,10 +150,18 @@ func (s *Service) post(ctx context.Context, tx *db.Tx, c sqlc.Contract, purpose,
 	if err != nil {
 		return posted{}, err
 	}
+	return s.settle(ctx, tx, c, p)
+}
+
+// settle — последствия проведения платежа (05 разд. 10.1, 08 разд. 1.5): внесение залога или распределение
+// (сначала requested_charge_ids), перераспределение авансов, расхождения «переплата» и «недоплата», задача квитанции.
+// Платёж уже в статусе succeeded, договор заблокирован.
+func (s *Service) settle(ctx context.Context, tx *db.Tx, c sqlc.Contract, p sqlc.Payment) (posted, error) {
 	res := posted{payment: p}
-	if purpose == PurposeDeposit {
+	on := *p.ReceivedOn
+	if p.Purpose == PurposeDeposit {
 		if _, err := tx.Q.InsertDepositTx(ctx, sqlc.InsertDepositTxParams{
-			ContractID: c.ID, Kind: "receipt", AmountKop: amount, OpDate: on, PaymentID: &p.ID, CreatedBy: actorID(ctx), Now: s.clock.Now(),
+			ContractID: c.ID, Kind: "receipt", AmountKop: p.AmountKop, OpDate: on, PaymentID: &p.ID, CreatedBy: actorID(ctx), Now: s.clock.Now(),
 		}); err != nil {
 			return res, err
 		}
@@ -161,7 +170,7 @@ func (s *Service) post(ctx context.Context, tx *db.Tx, c sqlc.Contract, purpose,
 		if err != nil {
 			return res, err
 		}
-		if res.advance, err = s.billing.Allocate(ctx, tx, p.ID, money.Kop(amount), open, requested); err != nil {
+		if res.advance, err = s.billing.Allocate(ctx, tx, p.ID, money.Kop(p.AmountKop), open, p.RequestedChargeIds); err != nil {
 			return res, err
 		}
 		if err := s.billing.Rebalance(ctx, tx, c.ID); err != nil {

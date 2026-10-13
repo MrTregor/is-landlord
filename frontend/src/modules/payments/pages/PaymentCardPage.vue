@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Карточка платежа (14 Экраны собственника, раздел 6.3): поля, распределение, аванс, возвраты, чек, квитанция,
-// отмена платежа. Чек — этап M8, строка выписки — этап M9, статус в банке для онлайн-оплаты — этап M7.
+// отмена платежа, статус онлайн-оплаты в банке и «Проверить статус». Чек — этап M8, строка выписки — этап M9.
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -46,6 +46,15 @@ const advanceDialog = computed({
     if (!v) advanceMode.value = null
   },
 })
+
+async function checkStatus() {
+  try {
+    const r = await m.checkStatus.mutateAsync(id.value)
+    toast.add({ severity: 'info', summary: `Статус платежа: ${paymentStatusLabels[r.status]}`, life: 3000 })
+  } catch (err) {
+    toast.add({ severity: 'error', summary: 'Ошибка', detail: parseProblem(err).message, life: 6000 })
+  }
+}
 
 const cancelDialog = ref(false)
 const cancelReason = ref('')
@@ -133,6 +142,21 @@ async function cancelPayment() {
             <template v-if="p.comment">
               <dt>Комментарий</dt>
               <dd>{{ p.comment }}</dd>
+            </template>
+            <template v-if="p.source === 'online'">
+              <dt>Статус в банке</dt>
+              <dd>
+                {{ p.providerStatus ?? '—' }}
+                <Button
+                  v-if="p.status === 'pending'"
+                  label="Проверить статус"
+                  icon="pi pi-refresh"
+                  size="small"
+                  text
+                  :loading="m.checkStatus.isPending.value"
+                  @click="checkStatus"
+                />
+              </dd>
             </template>
             <template v-if="p.status === 'cancelled'">
               <dt>Отменён</dt>

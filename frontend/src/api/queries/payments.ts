@@ -86,6 +86,10 @@ export function usePaymentMutations() {
         unwrap(api.POST('/payments/{id}/refunds', { ...byId(v.id), body: v.body })),
       onSuccess: refresh,
     }),
+    checkStatus: useMutation({
+      mutationFn: (id: string) => unwrap(api.POST('/payments/{id}/check-status', byId(id))),
+      onSuccess: refresh,
+    }),
     moveToDeposit: useMutation({
       mutationFn: (v: { id: string; body: S['AdvanceToDepositInput'] }) =>
         unwrap(api.POST('/payments/{id}/move-to-deposit', { ...byId(v.id), body: v.body })),

@@ -27,6 +27,10 @@ function page(path: string, title: string, section: string, component: RouteReco
   return { path, component, meta: { title, section, layout: 'owner', access: 'owner' } } as RouteRecordRaw
 }
 
+function cabinetPage(path: string, title: string, component: RouteRecordRaw['component']): RouteRecordRaw {
+  return { path, component, meta: { title, layout: 'cabinet', access: 'tenant' } } as RouteRecordRaw
+}
+
 function cabinet(path: string, title: string, stage: string): RouteRecordRaw {
   return { path, component: PlannedPage, meta: { title, stage, layout: 'cabinet', access: 'tenant' } }
 }
@@ -143,9 +147,17 @@ export const routes: RouteRecordRaw[] = [
   },
 
   // Личный кабинет нанимателя
-  cabinet('/cabinet', 'Главная', 'M7'),
-  cabinet('/cabinet/charges', 'Начисления и платежи', 'M7'),
-  cabinet('/cabinet/payments/:id/result', 'Результат оплаты', 'M7'),
+  cabinetPage('/cabinet', 'Главная', () => import('@/modules/cabinet/pages/CabinetHomePage.vue')),
+  cabinetPage(
+    '/cabinet/charges',
+    'Начисления и платежи',
+    () => import('@/modules/cabinet/pages/CabinetChargesPage.vue'),
+  ),
+  cabinetPage(
+    '/cabinet/payments/:id/result',
+    'Результат оплаты',
+    () => import('@/modules/cabinet/pages/PaymentResultPage.vue'),
+  ),
   cabinet('/cabinet/meters', 'Показания', 'M13'),
   cabinet('/cabinet/requests', 'Заявки', 'M13'),
   cabinet('/cabinet/requests/new', 'Новая заявка', 'M13'),

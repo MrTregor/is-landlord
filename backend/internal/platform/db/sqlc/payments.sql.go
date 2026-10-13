@@ -13,6 +13,53 @@ import (
 	"landlord/backend/internal/platform/date"
 )
 
+const activePendingPayment = `-- name: ActivePendingPayment :one
+SELECT id, contract_id, purpose, amount_kop, received_on, method, source, status, requested_charge_ids, provider_payment_id, provider_status, payment_url, payment_url_expires_at, payer_name, payer_inn, payer_account, bank_purpose, bank_statement_line_id, receipt_number, comment, created_by, created_at, updated_at, cancelled_at, cancelled_by, cancel_reason FROM payments
+WHERE contract_id = $1 AND status = 'pending' AND source = 'online' AND payment_url IS NOT NULL
+  AND payment_url_expires_at > $2
+ORDER BY created_at DESC LIMIT 1
+`
+
+type ActivePendingPaymentParams struct {
+	ContractID uuid.UUID
+	Now        *time.Time
+}
+
+// Незавершённая онлайн-оплата договора (карточка «К оплате» кабинета).
+func (q *Queries) ActivePendingPayment(ctx context.Context, arg ActivePendingPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, activePendingPayment, arg.ContractID, arg.Now)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.Purpose,
+		&i.AmountKop,
+		&i.ReceivedOn,
+		&i.Method,
+		&i.Source,
+		&i.Status,
+		&i.RequestedChargeIds,
+		&i.ProviderPaymentID,
+		&i.ProviderStatus,
+		&i.PaymentUrl,
+		&i.PaymentUrlExpiresAt,
+		&i.PayerName,
+		&i.PayerInn,
+		&i.PayerAccount,
+		&i.BankPurpose,
+		&i.BankStatementLineID,
+		&i.ReceiptNumber,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+	)
+	return i, err
+}
+
 const cancelDepositTx = `-- name: CancelDepositTx :exec
 UPDATE deposit_transactions SET cancelled_at = $1, cancel_reason = $2 WHERE id = $3
 `
@@ -266,6 +313,81 @@ func (q *Queries) DepositTotals(ctx context.Context, contractID uuid.UUID) (Depo
 	var i DepositTotalsRow
 	err := row.Scan(&i.ReceivedKop, &i.BalanceKop)
 	return i, err
+}
+
+const expiredPendingPayments = `-- name: ExpiredPendingPayments :many
+SELECT id, contract_id, purpose, amount_kop, received_on, method, source, status, requested_charge_ids, provider_payment_id, provider_status, payment_url, payment_url_expires_at, payer_name, payer_inn, payer_account, bank_purpose, bank_statement_line_id, receipt_number, comment, created_by, created_at, updated_at, cancelled_at, cancelled_by, cancel_reason FROM payments
+WHERE status = 'pending' AND source = 'online' AND payment_url_expires_at < $1
+ORDER BY payment_url_expires_at
+`
+
+// Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
+func (q *Queries) ExpiredPendingPayments(ctx context.Context, now *time.Time) ([]Payment, error) {
+	rows, err := q.db.Query(ctx, expiredPendingPayments, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Payment{}
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContractID,
+			&i.Purpose,
+			&i.AmountKop,
+			&i.ReceivedOn,
+			&i.Method,
+			&i.Source,
+			&i.Status,
+			&i.RequestedChargeIds,
+			&i.ProviderPaymentID,
+			&i.ProviderStatus,
+			&i.PaymentUrl,
+			&i.PaymentUrlExpiresAt,
+			&i.PayerName,
+			&i.PayerInn,
+			&i.PayerAccount,
+			&i.BankPurpose,
+			&i.BankStatementLineID,
+			&i.ReceiptNumber,
+			&i.Comment,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CancelledAt,
+			&i.CancelledBy,
+			&i.CancelReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const finishWebhookEvent = `-- name: FinishWebhookEvent :exec
+UPDATE webhook_events SET processed_at = $1, result = $2, error_text = $3 WHERE id = $4
+`
+
+type FinishWebhookEventParams struct {
+	Now       *time.Time
+	Result    *string
+	ErrorText *string
+	ID        uuid.UUID
+}
+
+func (q *Queries) FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error {
+	_, err := q.db.Exec(ctx, finishWebhookEvent,
+		arg.Now,
+		arg.Result,
+		arg.ErrorText,
+		arg.ID,
+	)
+	return err
 }
 
 const getDepositTxForUpdate = `-- name: GetDepositTxForUpdate :one
@@ -561,6 +683,26 @@ func (q *Queries) GetPaymentRow(ctx context.Context, id uuid.UUID) (GetPaymentRo
 	return i, err
 }
 
+const getWebhookEvent = `-- name: GetWebhookEvent :one
+SELECT id, provider, event_key, payload, received_at, processed_at, result, error_text FROM webhook_events WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetWebhookEvent(ctx context.Context, id uuid.UUID) (WebhookEvent, error) {
+	row := q.db.QueryRow(ctx, getWebhookEvent, id)
+	var i WebhookEvent
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.EventKey,
+		&i.Payload,
+		&i.ReceivedAt,
+		&i.ProcessedAt,
+		&i.Result,
+		&i.ErrorText,
+	)
+	return i, err
+}
+
 const insertDepositTx = `-- name: InsertDepositTx :one
 
 INSERT INTO deposit_transactions (contract_id, kind, amount_kop, op_date, reason, payment_id, from_advance,
@@ -715,6 +857,64 @@ func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (P
 	return i, err
 }
 
+const insertPendingPayment = `-- name: InsertPendingPayment :one
+
+INSERT INTO payments (contract_id, purpose, amount_kop, method, source, status, requested_charge_ids, created_by, created_at, updated_at)
+VALUES ($1, $2, $3, 'online', 'online', 'pending', $4, $5, $6, $6)
+RETURNING id, contract_id, purpose, amount_kop, received_on, method, source, status, requested_charge_ids, provider_payment_id, provider_status, payment_url, payment_url_expires_at, payer_name, payer_inn, payer_account, bank_purpose, bank_statement_line_id, receipt_number, comment, created_by, created_at, updated_at, cancelled_at, cancelled_by, cancel_reason
+`
+
+type InsertPendingPaymentParams struct {
+	ContractID         uuid.UUID
+	Purpose            string
+	AmountKop          int64
+	RequestedChargeIds []uuid.UUID
+	CreatedBy          *uuid.UUID
+	Now                time.Time
+}
+
+// Онлайн-оплата (FR-06.1, 08 разд. 1)
+func (q *Queries) InsertPendingPayment(ctx context.Context, arg InsertPendingPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, insertPendingPayment,
+		arg.ContractID,
+		arg.Purpose,
+		arg.AmountKop,
+		arg.RequestedChargeIds,
+		arg.CreatedBy,
+		arg.Now,
+	)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.Purpose,
+		&i.AmountKop,
+		&i.ReceivedOn,
+		&i.Method,
+		&i.Source,
+		&i.Status,
+		&i.RequestedChargeIds,
+		&i.ProviderPaymentID,
+		&i.ProviderStatus,
+		&i.PaymentUrl,
+		&i.PaymentUrlExpiresAt,
+		&i.PayerName,
+		&i.PayerInn,
+		&i.PayerAccount,
+		&i.BankPurpose,
+		&i.BankStatementLineID,
+		&i.ReceiptNumber,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+	)
+	return i, err
+}
+
 const insertRefund = `-- name: InsertRefund :one
 INSERT INTO refunds (payment_id, amount_kop, refunded_on, method, reason, created_by, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -775,6 +975,33 @@ func (q *Queries) InsertUnderpayment(ctx context.Context, arg InsertUnderpayment
 		arg.Now,
 	)
 	return err
+}
+
+const insertWebhookEvent = `-- name: InsertWebhookEvent :one
+INSERT INTO webhook_events (provider, event_key, payload, received_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (provider, event_key) DO NOTHING
+RETURNING id
+`
+
+type InsertWebhookEventParams struct {
+	Provider string
+	EventKey string
+	Payload  []byte
+	Now      time.Time
+}
+
+// Уведомление сохраняется один раз (уникальный ключ); повтор — нет строк в ответе (NFR-Rel-02).
+func (q *Queries) InsertWebhookEvent(ctx context.Context, arg InsertWebhookEventParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertWebhookEvent,
+		arg.Provider,
+		arg.EventKey,
+		arg.Payload,
+		arg.Now,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const lastDepositOperation = `-- name: LastDepositOperation :one
@@ -1494,6 +1721,63 @@ func (q *Queries) ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) e
 	return err
 }
 
+const reusablePendingPayment = `-- name: ReusablePendingPayment :one
+SELECT id, contract_id, purpose, amount_kop, received_on, method, source, status, requested_charge_ids, provider_payment_id, provider_status, payment_url, payment_url_expires_at, payer_name, payer_inn, payer_account, bank_purpose, bank_statement_line_id, receipt_number, comment, created_by, created_at, updated_at, cancelled_at, cancelled_by, cancel_reason FROM payments
+WHERE contract_id = $1 AND purpose = $2 AND amount_kop = $3 AND status = 'pending' AND source = 'online'
+  AND payment_url IS NOT NULL AND payment_url_expires_at > $4
+  AND requested_charge_ids @> $5::uuid[] AND requested_charge_ids <@ $5::uuid[]
+ORDER BY created_at DESC LIMIT 1
+`
+
+type ReusablePendingPaymentParams struct {
+	ContractID uuid.UUID
+	Purpose    string
+	AmountKop  int64
+	Now        *time.Time
+	ChargeIds  []uuid.UUID
+}
+
+// Неистёкшая начатая оплата с той же суммой и составом (06 разд. 15, POST /cabinet/payments).
+func (q *Queries) ReusablePendingPayment(ctx context.Context, arg ReusablePendingPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, reusablePendingPayment,
+		arg.ContractID,
+		arg.Purpose,
+		arg.AmountKop,
+		arg.Now,
+		arg.ChargeIds,
+	)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.Purpose,
+		&i.AmountKop,
+		&i.ReceivedOn,
+		&i.Method,
+		&i.Source,
+		&i.Status,
+		&i.RequestedChargeIds,
+		&i.ProviderPaymentID,
+		&i.ProviderStatus,
+		&i.PaymentUrl,
+		&i.PaymentUrlExpiresAt,
+		&i.PayerName,
+		&i.PayerInn,
+		&i.PayerAccount,
+		&i.BankPurpose,
+		&i.BankStatementLineID,
+		&i.ReceiptNumber,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+	)
+	return i, err
+}
+
 const reversePaymentAllocations = `-- name: ReversePaymentAllocations :many
 UPDATE payment_allocations SET reversed_at = $1, reversed_reason = $2
 WHERE payment_id = $3 AND reversed_at IS NULL
@@ -1541,6 +1825,57 @@ func (q *Queries) SetDiscrepancyAmount(ctx context.Context, arg SetDiscrepancyAm
 	return err
 }
 
+const setPaymentFailed = `-- name: SetPaymentFailed :exec
+UPDATE payments SET status = 'failed', provider_status = $1 WHERE id = $2
+`
+
+type SetPaymentFailedParams struct {
+	ProviderStatus *string
+	ID             uuid.UUID
+}
+
+func (q *Queries) SetPaymentFailed(ctx context.Context, arg SetPaymentFailedParams) error {
+	_, err := q.db.Exec(ctx, setPaymentFailed, arg.ProviderStatus, arg.ID)
+	return err
+}
+
+const setPaymentInit = `-- name: SetPaymentInit :exec
+UPDATE payments SET provider_payment_id = $1, payment_url = $2,
+  payment_url_expires_at = $3, provider_status = 'NEW'
+WHERE id = $4
+`
+
+type SetPaymentInitParams struct {
+	ProviderPaymentID *string
+	PaymentUrl        *string
+	ExpiresAt         *time.Time
+	ID                uuid.UUID
+}
+
+func (q *Queries) SetPaymentInit(ctx context.Context, arg SetPaymentInitParams) error {
+	_, err := q.db.Exec(ctx, setPaymentInit,
+		arg.ProviderPaymentID,
+		arg.PaymentUrl,
+		arg.ExpiresAt,
+		arg.ID,
+	)
+	return err
+}
+
+const setProviderStatus = `-- name: SetProviderStatus :exec
+UPDATE payments SET provider_status = $1 WHERE id = $2
+`
+
+type SetProviderStatusParams struct {
+	ProviderStatus *string
+	ID             uuid.UUID
+}
+
+func (q *Queries) SetProviderStatus(ctx context.Context, arg SetProviderStatusParams) error {
+	_, err := q.db.Exec(ctx, setProviderStatus, arg.ProviderStatus, arg.ID)
+	return err
+}
+
 const setUnderpayment = `-- name: SetUnderpayment :exec
 UPDATE discrepancies SET amount_kop = $1, payment_id = $2 WHERE id = $3
 `
@@ -1554,4 +1889,57 @@ type SetUnderpaymentParams struct {
 func (q *Queries) SetUnderpayment(ctx context.Context, arg SetUnderpaymentParams) error {
 	_, err := q.db.Exec(ctx, setUnderpayment, arg.AmountKop, arg.PaymentID, arg.ID)
 	return err
+}
+
+const succeedPayment = `-- name: SucceedPayment :one
+UPDATE payments SET status = 'succeeded', received_on = $1, receipt_number = $2,
+  provider_status = $3
+WHERE id = $4
+RETURNING id, contract_id, purpose, amount_kop, received_on, method, source, status, requested_charge_ids, provider_payment_id, provider_status, payment_url, payment_url_expires_at, payer_name, payer_inn, payer_account, bank_purpose, bank_statement_line_id, receipt_number, comment, created_by, created_at, updated_at, cancelled_at, cancelled_by, cancel_reason
+`
+
+type SucceedPaymentParams struct {
+	ReceivedOn     *date.Date
+	ReceiptNumber  *string
+	ProviderStatus *string
+	ID             uuid.UUID
+}
+
+func (q *Queries) SucceedPayment(ctx context.Context, arg SucceedPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, succeedPayment,
+		arg.ReceivedOn,
+		arg.ReceiptNumber,
+		arg.ProviderStatus,
+		arg.ID,
+	)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.Purpose,
+		&i.AmountKop,
+		&i.ReceivedOn,
+		&i.Method,
+		&i.Source,
+		&i.Status,
+		&i.RequestedChargeIds,
+		&i.ProviderPaymentID,
+		&i.ProviderStatus,
+		&i.PaymentUrl,
+		&i.PaymentUrlExpiresAt,
+		&i.PayerName,
+		&i.PayerInn,
+		&i.PayerAccount,
+		&i.BankPurpose,
+		&i.BankStatementLineID,
+		&i.ReceiptNumber,
+		&i.Comment,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+	)
+	return i, err
 }

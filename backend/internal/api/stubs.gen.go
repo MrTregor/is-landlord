@@ -81,6 +81,10 @@ func (StrictUnimplemented) ChangePropertyStatus(context.Context, ChangePropertyS
 	return nil, apperr.NotImplemented()
 }
 
+func (StrictUnimplemented) CheckPaymentStatus(context.Context, CheckPaymentStatusRequestObject) (CheckPaymentStatusResponseObject, error) {
+	return nil, apperr.NotImplemented()
+}
+
 func (StrictUnimplemented) CommentCabinetRequest(context.Context, CommentCabinetRequestRequestObject) (CommentCabinetRequestResponseObject, error) {
 	return nil, apperr.NotImplemented()
 }

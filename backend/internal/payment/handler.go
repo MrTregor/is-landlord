@@ -2,6 +2,7 @@ package payment
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 
@@ -394,4 +395,31 @@ func (h *Handler) ResolveDiscrepancy(ctx context.Context, req api.ResolveDiscrep
 		return nil, err
 	}
 	return api.ResolveDiscrepancy200JSONResponse(discrepancyDTO(sqlc.ListDiscrepanciesRow(r))), nil
+}
+
+// CheckPaymentStatus — POST /payments/{id}/check-status: GetState и применение статуса (08 разд. 1.6).
+func (h *Handler) CheckPaymentStatus(ctx context.Context, req api.CheckPaymentStatusRequestObject) (
+	api.CheckPaymentStatusResponseObject, error,
+) {
+	if err := h.svc.CheckStatus(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	d, err := h.detail(ctx, req.Id)
+	return api.CheckPaymentStatus200JSONResponse(d), err
+}
+
+// TbankNotify — POST /integrations/tbank/notify (08 разд. 1.4): «OK» после сохранения события (и для повтора);
+// неверная подпись — 403 без тела.
+func (h *Handler) TbankNotify(ctx context.Context, req api.TbankNotifyRequestObject) (api.TbankNotifyResponseObject, error) {
+	if req.Body == nil {
+		return api.TbankNotify403Response{}, nil
+	}
+	err := h.svc.AcceptNotification(ctx, map[string]any(*req.Body))
+	if errors.Is(err, ErrBadSignature) {
+		return api.TbankNotify403Response{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return api.TbankNotify200TextResponse("OK"), nil
 }

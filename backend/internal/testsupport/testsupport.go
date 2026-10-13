@@ -101,6 +101,8 @@ type Env struct {
 	Server *httptest.Server
 	// PDF — подделка Gotenberg: запоминает HTML сформированных документов.
 	PDF *FakePDF
+	// Bank — подделка API Т-Банка.
+	Bank *FakeBank
 }
 
 // FakePDF — конвертер HTML → PDF для тестов: возвращает минимальный PDF и хранит HTML последних документов.
@@ -149,6 +151,10 @@ func NewEnv(t testing.TB, today string) *Env {
 		SessionIdleHours: 8, SessionAbsoluteDays: 30, CookieSecure: false, Location: Moscow(),
 		FilesDir: t.TempDir(), MaxUploadMB: 10, PDNKey: bytes.Repeat([]byte{42}, 32),
 	}
+	bank := newFakeBank()
+	t.Cleanup(bank.Server.Close)
+	cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword = bank.Server.URL+"/v2", BankTerminal, BankPassword
+	cfg.TbankNotificationURL = "http://localhost:8080/api/v1/integrations/tbank/notify"
 	database, err := db.Open(ctx, AppURL)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +169,7 @@ func NewEnv(t testing.TB, today string) *Env {
 	}
 	srv := httptest.NewServer(a.Server(okGotenberg{}).Handler())
 	t.Cleanup(srv.Close)
-	return &Env{App: a, Clock: clk, Server: srv, PDF: fake}
+	return &Env{App: a, Clock: clk, Server: srv, PDF: fake, Bank: bank}
 }
 
 type okGotenberg struct{}
@@ -291,18 +297,23 @@ func (e *Env) ActiveOwner(t *testing.T, email, password string) *Client {
 // ActiveTenant создаёт нанимателя-физлицо и его активную учётную запись (ознакомлен с политикой версии 1.0).
 func (e *Env) ActiveTenant(t *testing.T, email, password string) *Client {
 	t.Helper()
-	ctx := context.Background()
-	conn := Owner(t)
+	var tenantID string
+	if err := Owner(t).QueryRow(context.Background(),
+		`INSERT INTO tenants (kind, last_name, first_name, email) VALUES ('individual','Тестов','Тест',$1) RETURNING id`, email).Scan(&tenantID); err != nil {
+		t.Fatal(err)
+	}
+	return e.TenantUser(t, tenantID, email, password)
+}
+
+// TenantUser — активная учётная запись существующего нанимателя (ознакомлен с политикой 1.0), вход выполнен.
+func (e *Env) TenantUser(t *testing.T, tenantID, email, password string) *Client {
+	t.Helper()
 	hash, err := crypto.HashPassword(password, FastArgon)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tenantID string
-	if err := conn.QueryRow(ctx, `INSERT INTO tenants (kind, last_name, first_name, email) VALUES ('individual','Тестов','Тест',$1) RETURNING id`, email).Scan(&tenantID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := conn.Exec(ctx, `INSERT INTO users (email, password_hash, role, status, tenant_id, display_name, policy_accepted_version)
-		VALUES ($1, $2, 'tenant', 'active', $3, 'Тест', '1.0')`, email, hash, tenantID); err != nil {
+	if _, err := Owner(t).Exec(context.Background(), `INSERT INTO users (email, password_hash, role, status, tenant_id, display_name, policy_accepted_version)
+		VALUES ($1, $2, 'tenant', 'active', $3, 'Наниматель', '1.0')`, email, hash, tenantID); err != nil {
 		t.Fatal(err)
 	}
 	c := e.NewClient(t)
@@ -310,7 +321,6 @@ func (e *Env) ActiveTenant(t *testing.T, email, password string) *Client {
 	return c
 }
 
-// tWriter — журнал приложения в выводе теста (видно при падении или -v).
 type tWriter struct{ t testing.TB }
 
 func (w tWriter) Write(p []byte) (int, error) {

@@ -274,3 +274,61 @@ LEFT JOIN tenants t ON t.id = c.tenant_id
 LEFT JOIN payments p ON p.id = d.payment_id
 LEFT JOIN users u ON u.id = d.resolved_by
 WHERE d.id = $1;
+
+-- Онлайн-оплата (FR-06.1, 08 разд. 1)
+
+-- name: InsertPendingPayment :one
+INSERT INTO payments (contract_id, purpose, amount_kop, method, source, status, requested_charge_ids, created_by, created_at, updated_at)
+VALUES (@contract_id, @purpose, @amount_kop, 'online', 'online', 'pending', @requested_charge_ids, sqlc.narg(created_by), @now, @now)
+RETURNING *;
+
+-- name: ReusablePendingPayment :one
+-- Неистёкшая начатая оплата с той же суммой и составом (06 разд. 15, POST /cabinet/payments).
+SELECT * FROM payments
+WHERE contract_id = @contract_id AND purpose = @purpose AND amount_kop = @amount_kop AND status = 'pending' AND source = 'online'
+  AND payment_url IS NOT NULL AND payment_url_expires_at > @now
+  AND requested_charge_ids @> @charge_ids::uuid[] AND requested_charge_ids <@ @charge_ids::uuid[]
+ORDER BY created_at DESC LIMIT 1;
+
+-- name: ActivePendingPayment :one
+-- Незавершённая онлайн-оплата договора (карточка «К оплате» кабинета).
+SELECT * FROM payments
+WHERE contract_id = @contract_id AND status = 'pending' AND source = 'online' AND payment_url IS NOT NULL
+  AND payment_url_expires_at > @now
+ORDER BY created_at DESC LIMIT 1;
+
+-- name: SetPaymentInit :exec
+UPDATE payments SET provider_payment_id = @provider_payment_id, payment_url = @payment_url,
+  payment_url_expires_at = @expires_at, provider_status = 'NEW'
+WHERE id = @id;
+
+-- name: SetPaymentFailed :exec
+UPDATE payments SET status = 'failed', provider_status = @provider_status WHERE id = @id;
+
+-- name: SetProviderStatus :exec
+UPDATE payments SET provider_status = @provider_status WHERE id = @id;
+
+-- name: SucceedPayment :one
+UPDATE payments SET status = 'succeeded', received_on = @received_on, receipt_number = @receipt_number,
+  provider_status = @provider_status
+WHERE id = @id
+RETURNING *;
+
+-- name: ExpiredPendingPayments :many
+-- Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
+SELECT * FROM payments
+WHERE status = 'pending' AND source = 'online' AND payment_url_expires_at < @now
+ORDER BY payment_url_expires_at;
+
+-- name: InsertWebhookEvent :one
+-- Уведомление сохраняется один раз (уникальный ключ); повтор — нет строк в ответе (NFR-Rel-02).
+INSERT INTO webhook_events (provider, event_key, payload, received_at)
+VALUES (@provider, @event_key, @payload, @now)
+ON CONFLICT (provider, event_key) DO NOTHING
+RETURNING id;
+
+-- name: GetWebhookEvent :one
+SELECT * FROM webhook_events WHERE id = $1 FOR UPDATE;
+
+-- name: FinishWebhookEvent :exec
+UPDATE webhook_events SET processed_at = @now, result = @result, error_text = sqlc.narg(error_text) WHERE id = @id;

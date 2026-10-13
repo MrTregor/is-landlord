@@ -1857,6 +1857,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/payments/{id}/check-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Проверить статус онлайн-оплаты в банке (О)
+         * @description Кнопка «Проверить статус» у платежа pending (08 разд. 1.6, 14 разд. 6.3); docs/open-questions.md.
+         */
+        post: operations["checkPaymentStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/payments/{id}/receipt.pdf": {
         parameters: {
             query?: never;
@@ -5366,9 +5388,14 @@ export interface components {
         CabinetPaymentStatus: {
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            contractId: string;
             status: components["schemas"]["PaymentStatus"];
             amountKop: components["schemas"]["Kop"];
             receiptNumber: string | null;
+            purpose: components["schemas"]["PaymentPurpose"];
+            /** @description Начисления оплаты — для «Попробовать снова» тем же составом (15 разд. 3) */
+            chargeIds: string[];
         };
         CabinetMeterReading: {
             /** Format: date */
@@ -8432,6 +8459,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DepositOperationDTO"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    checkPaymentStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Платёж */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentDetail"];
                 };
             };
             default: components["responses"]["Problem"];
