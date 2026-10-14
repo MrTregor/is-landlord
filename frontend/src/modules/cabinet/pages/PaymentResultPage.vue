@@ -2,9 +2,10 @@
 // Результат оплаты (15 Экраны нанимателя, раздел 3): опрос статуса каждые 2 с до 30 с.
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { cabinetReceiptUrl, useCabinetPaymentStatus, useStartPayment } from '@/api/queries/cabinet'
+import { cabinetReceiptUrl, fetchCabinetSummary, useCabinetPaymentStatus, useStartPayment } from '@/api/queries/cabinet'
 import MoneyText from '@/components/MoneyText.vue'
 import { parseProblem } from '@/utils/problem'
+import { retryPlan } from '../retry'
 
 const POLL_MS = 30_000
 
@@ -18,20 +19,27 @@ onBeforeUnmount(() => clearTimeout(timer))
 const status = useCabinetPaymentStatus(id, timedOut)
 const p = computed(() => status.data.value)
 
-// «Попробовать снова» — новая оплата тем же составом (15 разд. 3).
+// «Попробовать снова» (15 разд. 3; docs/open-questions.md, № 54): прежний состав — подсказка; сумма и список
+// пересчитываются по начислениям, открытым сейчас (часть могла быть оплачена).
 const start = useStartPayment()
 const retryError = ref<string | null>(null)
+const retrying = ref(false)
 async function retry() {
   retryError.value = null
+  retrying.value = true
   try {
-    const r = await start.mutateAsync({
-      contractId: p.value!.contractId,
-      purpose: p.value!.purpose,
-      chargeIds: p.value!.chargeIds,
-    })
+    const prev = p.value!
+    const plan = retryPlan(prev, await fetchCabinetSummary(prev.contractId))
+    if ('message' in plan) {
+      retryError.value = plan.message
+      return
+    }
+    const r = await start.mutateAsync({ contractId: prev.contractId, purpose: prev.purpose, chargeIds: plan.chargeIds })
     window.location.assign(r.paymentUrl)
   } catch (err) {
     retryError.value = parseProblem(err).message
+  } finally {
+    retrying.value = false
   }
 }
 </script>
@@ -64,8 +72,8 @@ async function retry() {
     <template v-else>
       <i class="pi pi-times-circle icon icon--fail" aria-hidden="true" />
       <h1>Оплата не прошла</h1>
-      <Message v-if="retryError" severity="error" :closable="false">{{ retryError }}</Message>
-      <Button label="Попробовать снова" class="wide" @click="retry" />
+      <Message v-if="retryError" severity="info" :closable="false">{{ retryError }}</Message>
+      <Button label="Попробовать снова" class="wide" :loading="retrying" @click="retry" />
       <Button label="На главную" outlined class="wide" @click="router.push('/cabinet')" />
     </template>
   </div>

@@ -367,8 +367,13 @@ func (s *Service) applyStatus(ctx context.Context, tx *db.Tx, orderID, providerI
 			Summary: fmt.Sprintf("Договор № %s: онлайн-оплата %s не прошла (%s)", c.Number, money.Kop(p.AmountKop).Format(), status),
 			Before:  map[string]any{"status": p.Status}, After: map[string]any{"status": "failed", "providerStatus": status},
 		})
+	case p.Status == "succeeded" && (status == tbank.StatusRefunded || status == tbank.StatusPartialRefunded):
+		// Возврат через банк система сама не учитывает: событие ignored и письмо собственнику
+		// (docs/open-questions.md, № 57).
+		return "ignored", "", s.notifyOwnersBankRefund(ctx, tx, c, p, status)
 	default:
-		// AUTHORIZED, FORM_SHOWED, NEW и прочие — только статус банка (у проведённого платежа не меняется).
+		// AUTHORIZED, FORM_SHOWED, NEW и прочие — только статус банка (у проведённого платежа не меняется:
+		// поздние REJECTED, CANCELED после CONFIRMED тоже игнорируются).
 		if p.Status == "pending" {
 			if err := tx.Q.SetProviderStatus(ctx, sqlc.SetProviderStatusParams{ID: p.ID, ProviderStatus: &status}); err != nil {
 				return "", "", err
@@ -451,6 +456,40 @@ func (s *Service) notifyOwners(ctx context.Context, tx *db.Tx, c sqlc.Contract, 
 	return nil
 }
 
+// notifyOwnersBankRefund — письмо собственникам owner_bank_refund о возврате проведённого онлайн-платежа банком.
+func (s *Service) notifyOwnersBankRefund(ctx context.Context, tx *db.Tx, c sqlc.Contract, p sqlc.Payment, status string) error {
+	t, err := tx.Q.GetTenant(ctx, c.TenantID)
+	if err != nil {
+		return err
+	}
+	short := names.Short(t.LastName, t.FirstName, t.MiddleName)
+	if t.Kind == "legal" && t.OrgName != nil {
+		short = *t.OrgName
+	}
+	title := "полный возврат"
+	if status == tbank.StatusPartialRefunded {
+		title = "частичный возврат"
+	}
+	owners, err := tx.Q.ActiveOwnerUsers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, o := range owners {
+		if err := s.notify.Queue(ctx, tx, notify.Email{
+			Code: "owner_bank_refund", To: o.Email, RelatedType: "payment", RelatedID: &p.ID,
+			DedupeKey: "owner_bank_refund:" + p.ID.String() + ":" + status + ":" + o.ID.String(),
+			Vars: map[string]string{
+				"tenant.short_name": short, "amount": money.Kop(p.AmountKop).FormatRub(), "received_on": p.ReceivedOn.Format(),
+				"receipt_number": valStr(p.ReceiptNumber), "status_title": title, "contract.number": c.Number,
+				"link": s.notify.Link("/payments/" + p.ID.String()),
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func methodTitle(m string) string {
 	switch m {
 	case "online":
@@ -465,7 +504,9 @@ func methodTitle(m string) string {
 
 // ---------------------------------------------------------------- Проверка статуса (08 разд. 1.6)
 
-// CheckStatus — статус платежа pending в банке (GetState) и его применение, как уведомления.
+// CheckStatus — статус платежа pending в банке (GetState) и его применение тем же кодом, что и уведомления
+// (applyStatus: договор и платёж под FOR UPDATE), поэтому одновременные уведомление и проверка не задваивают
+// проведение и квитанцию. Журнал пишется, только если статус платежа изменился (проведён или не прошёл).
 func (s *Service) CheckStatus(ctx context.Context, paymentID uuid.UUID) error {
 	p, err := s.db.Queries().GetPayment(ctx, paymentID)
 	if db.IsNoRows(err) {
@@ -491,7 +532,8 @@ func (s *Service) CheckStatus(ctx context.Context, paymentID uuid.UUID) error {
 }
 
 // ExpirePending — задача payments.expire_pending (07): у онлайн-платежей pending с истёкшей ссылкой — GetState;
-// оплачен — проводится, иначе failed (DEADLINE_EXPIRED).
+// оплачен — проводится, иначе failed (DEADLINE_EXPIRED). Отбор — по условию, а не по часу запуска: пропущенный
+// запуск (без догоняющего) подберёт следующий (docs/open-questions.md, № 58).
 func (s *Service) ExpirePending(ctx context.Context, st *jobs.Stats) error {
 	list, err := s.db.Queries().ExpiredPendingPayments(ctx, ptr(s.clock.Now()))
 	if err != nil {

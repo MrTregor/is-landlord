@@ -113,6 +113,13 @@ func (s *Store) Read(fn func(st *State)) {
 	fn(&s.st)
 }
 
+// Save записывает состояние в файл.
+func (s *Store) Save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
 func (s *Store) saveLocked() error {
 	if s.file == "" {
 		return nil

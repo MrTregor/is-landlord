@@ -29,6 +29,8 @@ const (
 	StatusCanceled        = "CANCELED"
 	StatusDeadlineExpired = "DEADLINE_EXPIRED"
 	StatusAuthFail        = "AUTH_FAIL"
+	StatusRefunded        = "REFUNDED"
+	StatusPartialRefunded = "PARTIAL_REFUNDED"
 )
 
 // Sign — Token (08 разд. 1.1): поля корневого уровня, кроме Token и вложенных объектов и массивов, плюс Password;

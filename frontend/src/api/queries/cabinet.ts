@@ -56,5 +56,9 @@ export function useStartPayment() {
   })
 }
 
+/** Сводка договора без кэша (пересчёт состава оплаты перед повтором). */
+export const fetchCabinetSummary = (contractId: string) =>
+  unwrap(api.GET('/cabinet/summary', { params: { query: { contractId } } }))
+
 /** Квитанция в кабинете. */
 export const cabinetReceiptUrl = (id: string) => `/api/v1/cabinet/payments/${id}/receipt.pdf`

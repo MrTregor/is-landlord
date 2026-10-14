@@ -293,3 +293,56 @@ func TestCabinetAccess_NFR_Sec_02(t *testing.T) {
 	r.JSON(t, &charges)
 	assert.NotEmpty(t, charges)
 }
+
+// № 8 (open-questions): «Проверить статус» без смены статуса — 200 без записи в журнал; одновременные проверки
+// при оплаченном в банке платеже проводят его один раз (одна квитанция, одна запись payment.succeed).
+func TestCheckStatusConcurrent_FR06_1(t *testing.T) {
+	o := newOnline(t, "o8", nil)
+	s := o.start(t, "charges")
+	audits := func(action string) int {
+		return count(t, `SELECT count(*) FROM audit_log WHERE action = $1 AND entity_id = $2`, action, s.PaymentID)
+	}
+	r := o.c.Do(http.MethodPost, "/payments/"+s.PaymentID+"/check-status", nil)
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	assert.Equal(t, "pending", o.payment(t, s.PaymentID).Status)
+	assert.Equal(t, 0, audits("payment.succeed")+audits("payment.fail"), "статус не изменился — без записи в журнал")
+
+	o.env.Bank.SetStatus(o.env.Bank.Last(), "CONFIRMED")
+	errs := make(chan error, 3)
+	for range 3 {
+		go func() { errs <- o.env.App.Payments.CheckStatus(context.Background(), uuid.MustParse(s.PaymentID)) }()
+	}
+	for range 3 {
+		if err := <-errs; err != nil {
+			assert.Contains(t, err.Error(), "незавершённой онлайн-оплаты", "допустим только отказ «уже проведён»")
+		}
+	}
+	assert.Equal(t, "succeeded", o.payment(t, s.PaymentID).Status)
+	assert.Equal(t, 1, audits("payment.succeed"))
+	assert.Equal(t, 1, count(t, `SELECT count(*) FROM river_job WHERE kind = 'document.payment_receipt' AND args->>'paymentId' = $1`, s.PaymentID))
+	assert.Equal(t, 1, count(t, `SELECT count(*) FROM payment_allocations WHERE payment_id = $1`, s.PaymentID))
+}
+
+// № 57 (open-questions): REFUNDED по проведённому платежу — событие ignored, платёж не меняется, письмо
+// собственнику owner_bank_refund; поздний REJECTED после CONFIRMED тоже игнорируется.
+func TestBankRefundAfterConfirmed_FR06_1(t *testing.T) {
+	o := newOnline(t, "o9", nil)
+	s := o.start(t, "charges")
+	bankID := o.env.Bank.Last()
+	require.Equal(t, http.StatusOK, o.notify(t, o.env.Bank.Notification(bankID, "CONFIRMED")).Status)
+	o.process(t)
+	for _, st := range []string{"REJECTED", "REFUNDED"} {
+		require.Equal(t, http.StatusOK, o.notify(t, o.env.Bank.Notification(bankID, st)).Status)
+	}
+	o.process(t)
+	assert.Equal(t, "succeeded", o.payment(t, s.PaymentID).Status)
+	assert.Equal(t, 2, count(t, `SELECT count(*) FROM webhook_events WHERE payload->>'OrderId' = $1 AND result = 'ignored'`, s.PaymentID))
+	owners := count(t, `SELECT count(*) FROM users WHERE role = 'owner' AND status = 'active'`)
+	assert.Equal(t, owners, count(t, `SELECT count(*) FROM email_log WHERE template_code = 'owner_bank_refund' AND related_entity_id = $1`,
+		s.PaymentID), "по письму каждому собственнику")
+	var body string
+	require.NoError(t, testsupport.Owner(t).QueryRow(context.Background(),
+		`SELECT body_html FROM email_log WHERE template_code = 'owner_bank_refund' AND related_entity_id = $1 LIMIT 1`, s.PaymentID).Scan(&body))
+	assert.Contains(t, body, "полный возврат")
+	assert.Contains(t, body, "28 000,00 руб.")
+}

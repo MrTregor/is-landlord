@@ -71,6 +71,15 @@ func main() {
 		log.Error("состояние эмулятора", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+	// Счётчик PaymentId должен пережить перезапуск контейнера (иначе система получит уже сохранённые PaymentId,
+	// docs/open-questions.md, № 55): файл состояния записывается сразу, без записи эмулятор не запускается.
+	if err := store.Save(); err != nil {
+		log.Error("файл состояния недоступен для записи", slog.String("file", cfg.StateFile), slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	var next int64
+	store.Read(func(st *State) { next = st.Seq + 1 })
+	log.Info("состояние эмулятора загружено", slog.String("file", cfg.StateFile), slog.Int64("nextPaymentId", next))
 	addr := getenv("MOCK_ADDR", ":8081")
 	srv := &http.Server{Addr: addr, Handler: NewServer(cfg, store, log).Handler(), ReadHeaderTimeout: 10 * time.Second}
 	log.Info("эмулятор Т-Банка запущен", slog.String("addr", addr), slog.String("public", cfg.PublicURL))

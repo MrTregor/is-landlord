@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -254,7 +255,8 @@ func TestStatePersistedAndReset(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state", "tbank.json")
 	e := newEnv(t, file)
 	e.init(t, "order-5", 10000)
-	e2 := newEnv(t, file)
+	e.srv.Wait()
+	e2 := newEnv(t, file) // перезапуск контейнера: счётчик читается из файла на томе
 	if r := e2.init(t, "order-6", 10000); r["PaymentId"] != "7000000002" {
 		t.Fatalf("после перезапуска %v", r)
 	}
@@ -282,5 +284,21 @@ func TestAdminActions(t *testing.T) {
 	e.srv.Wait()
 	if got := e.shop.statuses(); strings.Join(got, ",") != "CONFIRMED,CONFIRMED" {
 		t.Fatalf("уведомления %v", got)
+	}
+}
+
+// Файл состояния недоступен для записи — Save возвращает ошибку (эмулятор не запускается, № 55).
+func TestSaveFailsOnUnwritableState(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "файл")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(filepath.Join(blocker, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.Save() == nil {
+		t.Fatal("ожидалась ошибка записи")
 	}
 }
