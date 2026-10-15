@@ -30,6 +30,8 @@ export function usePayment(id: MaybeRefOrGetter<string>) {
     queryKey: ['payments', id],
     queryFn: () => unwrap(api.GET('/payments/{id}', { params: { path: { id: toValue(id) } } })),
     enabled: () => !!toValue(id),
+    // Чек в очереди или обрабатывается кассой — статус обновляется сам.
+    refetchInterval: (q) => (['queued', 'wait'].includes(q.state.data?.fiscalStatus ?? '') ? 3000 : false),
   })
 }
 
@@ -62,9 +64,17 @@ function useRefresh() {
   const qc = useQueryClient()
   return () =>
     Promise.all(
-      ['payments', 'charges', 'contracts', 'discrepancies', 'properties', 'tenants', 'calendar', 'dashboard'].map((k) =>
-        qc.invalidateQueries({ queryKey: [k] }),
-      ),
+      [
+        'payments',
+        'charges',
+        'contracts',
+        'discrepancies',
+        'properties',
+        'tenants',
+        'calendar',
+        'dashboard',
+        'fiscal',
+      ].map((k) => qc.invalidateQueries({ queryKey: [k] })),
     )
 }
 

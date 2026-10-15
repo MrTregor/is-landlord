@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Карточка платежа (14 Экраны собственника, раздел 6.3): поля, распределение, аванс, возвраты, чек, квитанция,
-// отмена платежа, статус онлайн-оплаты в банке и «Проверить статус». Чек — этап M8, строка выписки — этап M9.
+// отмена платежа, статус онлайн-оплаты в банке и «Проверить статус». Строка выписки — этап M9.
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -11,8 +11,6 @@ import StatusTag from '@/components/StatusTag.vue'
 import { formatDate } from '@/utils/date'
 import {
   chargeKindLabel,
-  fiscalStatusLabels,
-  fiscalStatusSeverity,
   paymentMethodLabels,
   paymentPurposeLabels,
   paymentSourceLabels,
@@ -21,6 +19,7 @@ import {
   refundMethodLabels,
 } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import FiscalReceiptBlock from '@/modules/fiscal/components/FiscalReceiptBlock.vue'
 import AdvanceDialog from '../components/AdvanceDialog.vue'
 
 const route = useRoute()
@@ -177,9 +176,7 @@ async function cancelPayment() {
 
         <section class="block">
           <h3>Чек</h3>
-          <template v-if="p.fiscalStatus">
-            <StatusTag :label="fiscalStatusLabels[p.fiscalStatus]" :severity="fiscalStatusSeverity[p.fiscalStatus]" />
-          </template>
+          <FiscalReceiptBlock v-if="p.fiscalReceipt" :receipt="p.fiscalReceipt" />
           <p v-else class="hint">Чек не формировался.</p>
         </section>
       </div>

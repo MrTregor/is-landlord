@@ -6141,10 +6141,13 @@ components:
         paymentUrl: { type: string }
     CabinetPaymentStatus:
       type: object
-      required: [id, status, amountKop, receiptNumber, contractId, purpose, chargeIds]
+      required: [id, status, amountKop, receiptNumber, contractId, purpose, chargeIds, fiscalReceiptExpected]
       properties:
         id: { type: string, format: uuid }
         contractId: { type: string, format: uuid }
+        fiscalReceiptExpected:
+          type: boolean
+          description: По оплате формируется кассовый чек на e-mail (облачная касса, назначение «начисления») — «Чек придёт на e-mail» (15 разд. 3)
         status: { $ref: "#/components/schemas/PaymentStatus" }
         amountKop: { $ref: "#/components/schemas/Kop" }
         receiptNumber: { type: [string, "null"] }

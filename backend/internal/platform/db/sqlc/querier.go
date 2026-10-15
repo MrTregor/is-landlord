@@ -79,6 +79,7 @@ type Querier interface {
 	CountContractTimeline(ctx context.Context, contractID string) (int64, error)
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
 	CountDiscrepancies(ctx context.Context, arg CountDiscrepanciesParams) (int64, error)
+	CountFiscalReceipts(ctx context.Context, arg CountFiscalReceiptsParams) (int64, error)
 	CountJobRuns(ctx context.Context, jobName *string) (int64, error)
 	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountPayments(ctx context.Context, arg CountPaymentsParams) (int64, error)
@@ -102,6 +103,8 @@ type Querier interface {
 	// Текущие договоры объектов (действует на дату): номер, наниматель, срок.
 	CurrentContracts(ctx context.Context, arg CurrentContractsParams) ([]CurrentContractsRow, error)
 	CurrentStatusRow(ctx context.Context, propertyID uuid.UUID) (PropertyStatusHistory, error)
+	// Момент «через N секунд» по часам сервера БД: по ним River планирует задачи (не зависит от сдвига демо-даты).
+	DBTimeAfter(ctx context.Context, seconds int32) (time.Time, error)
 	DeactivateTemplates(ctx context.Context, kind string) error
 	DebtByProperty(ctx context.Context, ids []uuid.UUID) ([]DebtByPropertyRow, error)
 	DebtByTenant(ctx context.Context, ids []uuid.UUID) ([]DebtByTenantRow, error)
@@ -136,6 +139,9 @@ type Querier interface {
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
 	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
+	// Данные для чека: платёж, договор, наниматель, объект.
+	FiscalPaymentContext(ctx context.Context, id uuid.UUID) (FiscalPaymentContextRow, error)
+	FiscalReceiptByUUID(ctx context.Context, externalUuid *string) (FiscalReceipt, error)
 	GetAct(ctx context.Context, id uuid.UUID) (ContractAct, error)
 	GetActForUpdate(ctx context.Context, id uuid.UUID) (ContractAct, error)
 	GetAmendment(ctx context.Context, id uuid.UUID) (ContractAmendment, error)
@@ -159,6 +165,9 @@ type Querier interface {
 	// Письма (FR-10).
 	GetEmailTemplate(ctx context.Context, code string) (EmailTemplate, error)
 	GetFile(ctx context.Context, id uuid.UUID) (File, error)
+	GetFiscalReceipt(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
+	// Чек под блокировкой и сколько секунд он в текущем состоянии (по часам сервера БД).
+	GetFiscalReceiptForUpdate(ctx context.Context, id uuid.UUID) (GetFiscalReceiptForUpdateRow, error)
 	GetMeter(ctx context.Context, id uuid.UUID) (Meter, error)
 	// Настройки организации (FR-14.1).
 	GetOrganizationSettings(ctx context.Context) (OrganizationSetting, error)
@@ -171,6 +180,7 @@ type Querier interface {
 	GetPropertyForUpdate(ctx context.Context, id uuid.UUID) (Property, error)
 	GetReading(ctx context.Context, id uuid.UUID) (GetReadingRow, error)
 	GetReadingForUpdate(ctx context.Context, id uuid.UUID) (MeterReading, error)
+	GetRefund(ctx context.Context, id uuid.UUID) (Refund, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
 	GetTariff(ctx context.Context, id uuid.UUID) (Tariff, error)
 	GetTemplate(ctx context.Context, id uuid.UUID) (DocumentTemplate, error)
@@ -189,6 +199,8 @@ type Querier interface {
 	InsertActReading(ctx context.Context, arg InsertActReadingParams) error
 	InsertAdjustment(ctx context.Context, arg InsertAdjustmentParams) error
 	InsertAllocation(ctx context.Context, arg InsertAllocationParams) error
+	// Колбэк АТОЛ сохраняется один раз (uuid:status); повтор — нет строк в ответе (08 разд. 3.4).
+	InsertAtolWebhookEvent(ctx context.Context, arg InsertAtolWebhookEventParams) (uuid.UUID, error)
 	// Журнал действий (FR-12, NFR-Sec-04).
 	InsertAudit(ctx context.Context, arg InsertAuditParams) (int64, error)
 	// Начисления (FR-05), распределения и пени.
@@ -201,6 +213,10 @@ type Querier interface {
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
 	// Файлы (06 API, раздел 6).
 	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
+	// Чеки (FR-06.2, FR-06.4; docs/spec/05 разд. 11, 08 разд. 3).
+	// Один чек на платёж или возврат (уникальные индексы); повтор — нет строк в ответе.
+	// updated_at — время сервера БД: по нему считаются технические интервалы (fiscal.reconcile, ожидание отчёта).
+	InsertFiscalReceipt(ctx context.Context, arg InsertFiscalReceiptParams) (FiscalReceipt, error)
 	InsertInventoryItem(ctx context.Context, arg InsertInventoryItemParams) (PropertyInventoryItem, error)
 	// Вход, сессии, токены (NFR-Sec-01).
 	InsertLoginAttempt(ctx context.Context, arg InsertLoginAttemptParams) error
@@ -249,6 +265,7 @@ type Querier interface {
 	ListContractDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error)
 	ListContracts(ctx context.Context, arg ListContractsParams) ([]ListContractsRow, error)
 	ListDiscrepancies(ctx context.Context, arg ListDiscrepanciesParams) ([]ListDiscrepanciesRow, error)
+	ListFiscalReceipts(ctx context.Context, arg ListFiscalReceiptsParams) ([]ListFiscalReceiptsRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
 	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
 	// Счётчики и тарифы (FR-01.1, FR-05.5).
@@ -337,10 +354,13 @@ type Querier interface {
 	RecordLoginSuccess(ctx context.Context, arg RecordLoginSuccessParams) error
 	// paid_kop = сумма активных распределений; статус по оплате (у отменённого не меняется).
 	RefreshChargePaid(ctx context.Context, id uuid.UUID) (Charge, error)
+	RefundFiscalReceipt(ctx context.Context, refundID *uuid.UUID) (FiscalReceipt, error)
 	RejectReading(ctx context.Context, arg RejectReadingParams) error
 	// Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
 	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) error
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
+	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
 	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
@@ -363,6 +383,12 @@ type Querier interface {
 	SetDocumentVisibility(ctx context.Context, arg SetDocumentVisibilityParams) (Document, error)
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
 	SetEventNotes(ctx context.Context, arg SetEventNotesParams) error
+	SetFiscalDone(ctx context.Context, arg SetFiscalDoneParams) (FiscalReceipt, error)
+	// attempts_inc — 1, если ошибка получена при отправке (новая попытка), 0 — при опросе отчёта.
+	SetFiscalFail(ctx context.Context, arg SetFiscalFailParams) (FiscalReceipt, error)
+	SetFiscalManual(ctx context.Context, arg SetFiscalManualParams) (FiscalReceipt, error)
+	SetFiscalPayload(ctx context.Context, arg SetFiscalPayloadParams) error
+	SetFiscalWait(ctx context.Context, arg SetFiscalWaitParams) error
 	SetNextIndexation(ctx context.Context, arg SetNextIndexationParams) error
 	SetPaymentFailed(ctx context.Context, arg SetPaymentFailedParams) error
 	SetPaymentInit(ctx context.Context, arg SetPaymentInitParams) error
@@ -378,6 +404,10 @@ type Querier interface {
 	SetUserPasswordHash(ctx context.Context, arg SetUserPasswordHashParams) error
 	SignAct(ctx context.Context, arg SignActParams) (ContractAct, error)
 	SignAmendment(ctx context.Context, arg SignAmendmentParams) (ContractAmendment, error)
+	// fiscal.reconcile: чеки в queued дольше 5 минут.
+	StaleQueuedFiscal(ctx context.Context) ([]uuid.UUID, error)
+	// fiscal.reconcile: чеки в wait дольше минуты (07 Фоновые задачи).
+	StaleWaitFiscal(ctx context.Context) ([]uuid.UUID, error)
 	StartJobRun(ctx context.Context, arg StartJobRunParams) (uuid.UUID, error)
 	// Статусы объекта по договору (05 разд. 4.4, 4.7, 4.8)
 	// Записи истории объекта, пересекающие дату и позже (для постановки «Сдан» с даты начала).

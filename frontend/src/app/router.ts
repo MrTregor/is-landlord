@@ -126,7 +126,7 @@ export const routes: RouteRecordRaw[] = [
   page('/calendar', 'Календарь', 'calendar', () => import('@/modules/calendar/pages/CalendarPage.vue')),
   owner('/reports', 'Отчёты', 'M12', 'reports'),
   owner('/reports/:name', 'Отчёт', 'M12', 'reports'),
-  owner('/fiscal-receipts', 'Чеки', 'M8', 'fiscal'),
+  page('/fiscal-receipts', 'Чеки', 'fiscal', () => import('@/modules/fiscal/pages/FiscalReceiptsPage.vue')),
   {
     path: '/audit',
     component: () => import('@/modules/audit/pages/AuditPage.vue'),

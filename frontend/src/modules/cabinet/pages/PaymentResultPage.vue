@@ -60,7 +60,7 @@ async function retry() {
       <a v-if="p.receiptNumber" :href="cabinetReceiptUrl(p.id)" target="_blank" rel="noopener">
         Квитанция {{ p.receiptNumber }}
       </a>
-      <p class="hint">Если по объекту формируется кассовый чек, он придёт на e-mail.</p>
+      <p v-if="p.fiscalReceiptExpected" class="hint">Чек придёт на e-mail.</p>
       <Button label="На главную" class="wide" @click="router.push('/cabinet')" />
     </template>
     <template v-else-if="p.status === 'pending'">

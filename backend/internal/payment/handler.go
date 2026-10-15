@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"landlord/backend/internal/api"
+	"landlord/backend/internal/fiscal"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/date"
@@ -130,7 +131,10 @@ func (h *Handler) detail(ctx context.Context, id uuid.UUID) (api.PaymentDetail, 
 	case !db.IsNoRows(err):
 		return d, err
 	}
-	// Чек (fiscalReceipt) — этап M8, строка выписки (bankLine) — этап M9.
+	if d.FiscalReceipt, err = fiscal.PaymentReceipt(ctx, q, id); err != nil {
+		return d, err
+	}
+	// Строка выписки (bankLine) — этап M9.
 	return d, nil
 }
 

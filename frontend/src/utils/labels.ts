@@ -186,6 +186,11 @@ export const fiscalStatusLabels: Record<S['FiscalStatus'], string> = {
   manual_required: 'Нужно сформировать вручную',
 }
 
+export const fiscalOperationLabels: Record<S['FiscalOperation'], string> = {
+  sell: 'Приход',
+  sell_refund: 'Возврат прихода',
+}
+
 export const userRoleLabels: Record<S['UserRole'], string> = {
   owner: 'Собственник',
   tenant: 'Наниматель',

@@ -5390,6 +5390,8 @@ export interface components {
             id: string;
             /** Format: uuid */
             contractId: string;
+            /** @description По оплате формируется кассовый чек на e-mail (облачная касса, назначение «начисления») — «Чек придёт на e-mail» (15 разд. 3) */
+            fiscalReceiptExpected: boolean;
             status: components["schemas"]["PaymentStatus"];
             amountKop: components["schemas"]["Kop"];
             receiptNumber: string | null;

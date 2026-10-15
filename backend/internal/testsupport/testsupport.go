@@ -103,6 +103,8 @@ type Env struct {
 	PDF *FakePDF
 	// Bank — подделка API Т-Банка.
 	Bank *FakeBank
+	// Atol — подделка API АТОЛ Онлайн.
+	Atol *FakeAtol
 }
 
 // FakePDF — конвертер HTML → PDF для тестов: возвращает минимальный PDF и хранит HTML последних документов.
@@ -155,6 +157,10 @@ func NewEnv(t testing.TB, today string) *Env {
 	t.Cleanup(bank.Server.Close)
 	cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword = bank.Server.URL+"/v2", BankTerminal, BankPassword
 	cfg.TbankNotificationURL = "http://localhost:8080/api/v1/integrations/tbank/notify"
+	kassa := newFakeAtol()
+	t.Cleanup(kassa.Server.Close)
+	cfg.AtolAPIURL, cfg.AtolLogin, cfg.AtolPassword, cfg.AtolGroupCode = kassa.Server.URL+"/possystem/v5", AtolLogin, AtolPass, AtolGroup
+	cfg.AtolCallbackURL = "http://localhost:8080/api/v1/integrations/atol/callback"
 	database, err := db.Open(ctx, AppURL)
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +175,7 @@ func NewEnv(t testing.TB, today string) *Env {
 	}
 	srv := httptest.NewServer(a.Server(okGotenberg{}).Handler())
 	t.Cleanup(srv.Close)
-	return &Env{App: a, Clock: clk, Server: srv, PDF: fake, Bank: bank}
+	return &Env{App: a, Clock: clk, Server: srv, PDF: fake, Bank: bank, Atol: kassa}
 }
 
 type okGotenberg struct{}

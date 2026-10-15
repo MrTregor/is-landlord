@@ -79,6 +79,7 @@ var actionTitles = map[string]string{
 	"fiscal.done":           "Чек сформирован",
 	"fiscal.fail":           "Ошибка чека",
 	"fiscal.manual":         "Чек НПД указан вручную",
+	"fiscal.retry":          "Повтор отправки чека",
 	"statement.upload":      "Загрузка выписки",
 	"discrepancy.resolve":   "Разбор расхождения",
 	"reading.accept":        "Принятие показания",

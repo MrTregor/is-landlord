@@ -13,6 +13,7 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/billing"
 	"landlord/backend/internal/document"
+	"landlord/backend/internal/fiscal"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
@@ -48,13 +49,14 @@ type Service struct {
 	notify    *notify.Service
 	jobs      notify.Inserter
 	online    Online
+	fiscal    *fiscal.Service
 }
 
 // NewService создаёт сервис платежей.
 func NewService(database *db.DB, au *audit.Service, clk clock.Clock, bl *billing.Service, docs *document.Service,
-	nt *notify.Service, ins notify.Inserter, online Online,
+	nt *notify.Service, ins notify.Inserter, online Online, fs *fiscal.Service,
 ) *Service {
-	return &Service{db: database, audit: au, clock: clk, billing: bl, documents: docs, notify: nt, jobs: ins, online: online}
+	return &Service{db: database, audit: au, clock: clk, billing: bl, documents: docs, notify: nt, jobs: ins, online: online, fiscal: fs}
 }
 
 func actorID(ctx context.Context) *uuid.UUID {
@@ -181,6 +183,10 @@ func (s *Service) settle(ctx context.Context, tx *db.Tx, c sqlc.Contract, p sqlc
 		}
 	}
 	if err := s.billing.CheckUnderpayment(ctx, tx, c.ID, p.ID, on); err != nil {
+		return res, err
+	}
+	// Чек прихода по режиму объекта (05 разд. 11).
+	if err := s.fiscal.ForPayment(ctx, tx, p, c); err != nil {
 		return res, err
 	}
 	// Квитанция PDF и письмо нанимателю — задачей document.payment_receipt (07 Фоновые задачи).
@@ -457,7 +463,10 @@ func (s *Service) refund(ctx context.Context, tx *db.Tx, p sqlc.Payment, c sqlc.
 	if err != nil {
 		return r, err
 	}
-	// Чек возврата прихода (05 разд. 11) — модуль фискализации (этап M8).
+	// Чек возврата прихода, если по платежу есть чек (05 разд. 11).
+	if err := s.fiscal.ForRefund(ctx, tx, r); err != nil {
+		return r, err
+	}
 	return r, s.audit.Record(ctx, tx.Q, audit.Entry{
 		Action: "payment.refund", EntityType: "payment", EntityID: p.ID.String(),
 		Summary: fmt.Sprintf("Договор № %s: возврат переплаты %s по квитанции %s", c.Number, money.Kop(in.AmountKop).Format(),

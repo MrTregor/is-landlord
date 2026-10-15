@@ -32,15 +32,19 @@ type DailyArgs struct {
 	RunID        *uuid.UUID `json:"runId,omitempty" river:"unique"`
 	// Hour — час запуска ежечасной задачи (уникальность в пределах часа).
 	Hour *int `json:"hour,omitempty" river:"unique"`
+	// Minute — минута запуска задачи с расписанием «каждые N минут» (уникальность в пределах интервала).
+	Minute *int `json:"minute,omitempty" river:"unique"`
 }
 
 // Daily — описание плановой задачи: имя (= kind River), время запуска по Москве и конструктор аргументов.
-// Hourly — запуск каждый час в Minute (payments.expire_pending); такие задачи не входят в догоняющий запуск.
+// Hourly — запуск каждый час в Minute (payments.expire_pending); EveryMinutes — каждые N минут от начала часа
+// (fiscal.reconcile). Такие задачи не входят в догоняющий запуск.
 type Daily struct {
-	Name   string
-	Hour   int
-	Minute int
-	Hourly bool
+	Name         string
+	Hour         int
+	Minute       int
+	Hourly       bool
+	EveryMinutes int
 	// Args строит аргументы задачи на бизнес-дату.
 	Args func(DailyArgs) river.JobArgs
 }
@@ -73,22 +77,46 @@ func (s HourlySchedule) Next(t time.Time) time.Time {
 	return next
 }
 
+// EverySchedule — расписание «каждые N минут» (*/N в cron): 00, N, 2N… минут каждого часа.
+type EverySchedule struct{ Minutes int }
+
+// Next — ближайший момент запуска строго после t.
+func (s EverySchedule) Next(t time.Time) time.Time {
+	step := time.Duration(s.Minutes) * time.Minute
+	next := t.Truncate(step)
+	for !next.After(t) {
+		next = next.Add(step)
+	}
+	return next
+}
+
+// Repeating — задача не ежедневная (ежечасная или каждые N минут).
+func (d Daily) Repeating() bool { return d.Hourly || d.EveryMinutes > 0 }
+
 // PeriodicJobs — периодические задачи River для плановых задач; бизнес-дата берётся из clk в момент запуска.
 func PeriodicJobs(daily []Daily, clk clock.Clock) []*river.PeriodicJob {
 	out := make([]*river.PeriodicJob, 0, len(daily))
 	for _, d := range daily {
 		d := d
 		var sched river.PeriodicSchedule = DailySchedule{Hour: d.Hour, Minute: d.Minute, Loc: clk.Location()}
-		if d.Hourly {
+		switch {
+		case d.Hourly:
 			sched = HourlySchedule{Minute: d.Minute}
+		case d.EveryMinutes > 0:
+			sched = EverySchedule{Minutes: d.EveryMinutes}
 		}
 		out = append(out, river.NewPeriodicJob(
 			sched,
 			func() (river.JobArgs, *river.InsertOpts) {
 				args := DailyArgs{BusinessDate: clk.Today(), Trigger: TriggerSchedule}
-				if d.Hourly {
-					h := clk.Now().In(clk.Location()).Hour()
+				if d.Repeating() {
+					now := clk.Now().In(clk.Location())
+					h := now.Hour()
 					args.Hour = &h
+					if d.EveryMinutes > 0 {
+						m := now.Minute() - now.Minute()%d.EveryMinutes
+						args.Minute = &m
+					}
 				}
 				return d.Args(args), nil
 			},
@@ -104,7 +132,7 @@ func CatchUp(ctx context.Context, database *db.DB, client *river.Client[pgx.Tx],
 	today := clk.Today()
 	now := clk.Now().In(clk.Location())
 	for _, d := range daily {
-		if d.Hourly {
+		if d.Repeating() {
 			continue
 		}
 		at := time.Date(now.Year(), now.Month(), now.Day(), d.Hour, d.Minute, 0, 0, clk.Location())

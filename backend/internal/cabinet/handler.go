@@ -14,6 +14,7 @@ import (
 
 	"landlord/backend/internal/api"
 	"landlord/backend/internal/document"
+	"landlord/backend/internal/fiscal"
 	"landlord/backend/internal/payment"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/apperr"
@@ -265,8 +266,18 @@ func (h *Handler) GetCabinetPayment(ctx context.Context, req api.GetCabinetPayme
 	if err != nil {
 		return nil, err
 	}
+	q := h.db.Queries()
+	c, err := q.GetContract(ctx, p.ContractID)
+	if err != nil {
+		return nil, err
+	}
+	prop, err := q.GetProperty(ctx, c.PropertyID)
+	if err != nil {
+		return nil, err
+	}
 	return api.GetCabinetPayment200JSONResponse{Id: p.ID, Status: api.PaymentStatus(p.Status), AmountKop: p.AmountKop,
-		ReceiptNumber: p.ReceiptNumber, ContractId: p.ContractID, Purpose: api.PaymentPurpose(p.Purpose), ChargeIds: p.RequestedChargeIds}, nil
+		ReceiptNumber: p.ReceiptNumber, ContractId: p.ContractID, Purpose: api.PaymentPurpose(p.Purpose), ChargeIds: p.RequestedChargeIds,
+		FiscalReceiptExpected: p.Purpose == payment.PurposeCharges && prop.FiscalMode == fiscal.ModeCloudKKT}, nil
 }
 
 // GetCabinetPaymentReceiptPdf — GET /cabinet/payments/{id}/receipt.pdf.
