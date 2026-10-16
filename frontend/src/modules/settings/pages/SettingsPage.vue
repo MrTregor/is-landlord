@@ -4,6 +4,8 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import DocumentTemplatesTab from '../components/DocumentTemplatesTab.vue'
+import EmailTemplatesTab from '../components/EmailTemplatesTab.vue'
+import NotificationsTab from '../components/NotificationsTab.vue'
 import OrganizationTab from '../components/OrganizationTab.vue'
 import PdnTab from '../components/PdnTab.vue'
 import ServiceTab from '../components/ServiceTab.vue'
@@ -14,8 +16,8 @@ import UsersTab from '../components/UsersTab.vue'
 const tabs = [
   { value: 'organization', label: 'Организация', component: OrganizationTab },
   { value: 'taxes', label: 'Налоги и фискализация', component: TaxesTab },
-  { value: 'notifications', label: 'Уведомления и сроки', stage: 'M10' },
-  { value: 'email-templates', label: 'Шаблоны писем', stage: 'M10' },
+  { value: 'notifications', label: 'Уведомления и сроки', component: NotificationsTab },
+  { value: 'email-templates', label: 'Шаблоны писем', component: EmailTemplatesTab },
   { value: 'document-templates', label: 'Шаблоны документов', component: DocumentTemplatesTab },
   { value: 'tariffs', label: 'Тарифы', component: TariffsTab },
   { value: 'users', label: 'Пользователи', component: UsersTab },
@@ -43,10 +45,7 @@ const active = computed({
       </TabList>
       <TabPanels>
         <TabPanel v-for="t in tabs" :key="t.value" :value="t.value">
-          <component :is="t.component" v-if="'component' in t" />
-          <Message v-else severity="info" :closable="false">
-            Раздел будет доступен после этапа {{ t.stage }} плана реализации.
-          </Message>
+          <component :is="t.component" />
         </TabPanel>
       </TabPanels>
     </Tabs>

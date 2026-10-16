@@ -484,8 +484,8 @@ func TestJobsScreen_FR14_1(t *testing.T) {
 	}
 	r.JSON(t, &acc)
 	assert.NotEmpty(t, acc.JobRunID)
-	r = w.c.Do(http.MethodPost, "/settings/jobs/notify.owner_digest/run", nil)
-	assert.Equal(t, http.StatusUnprocessableEntity, r.Status)
+	r = w.c.Do(http.MethodPost, "/settings/jobs/pdn.retention_daily/run", nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, r.Status, "задача следующего этапа")
 	var runs struct {
 		Total int `json:"total"`
 	}

@@ -761,11 +761,12 @@ func (q *Queries) InsertDepositTx(ctx context.Context, arg InsertDepositTxParams
 	return i, err
 }
 
-const insertOverpayment = `-- name: InsertOverpayment :exec
+const insertOverpayment = `-- name: InsertOverpayment :one
 
 INSERT INTO discrepancies (kind, contract_id, payment_id, amount_kop, detected_at)
 VALUES ('overpayment', $1, $2, $3, $4)
 ON CONFLICT (payment_id) WHERE kind = 'overpayment' DO NOTHING
+RETURNING id
 `
 
 type InsertOverpaymentParams struct {
@@ -776,15 +777,17 @@ type InsertOverpaymentParams struct {
 }
 
 // Расхождения
-// Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает.
-func (q *Queries) InsertOverpayment(ctx context.Context, arg InsertOverpaymentParams) error {
-	_, err := q.db.Exec(ctx, insertOverpayment,
+// Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает (нет строки в ответе).
+func (q *Queries) InsertOverpayment(ctx context.Context, arg InsertOverpaymentParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertOverpayment,
 		arg.ContractID,
 		arg.PaymentID,
 		arg.AmountKop,
 		arg.Now,
 	)
-	return err
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertPayment = `-- name: InsertPayment :one
@@ -1650,12 +1653,13 @@ func (q *Queries) PaymentReturns(ctx context.Context, paymentID uuid.UUID) (Paym
 	return i, err
 }
 
-const reopenUnidentified = `-- name: ReopenUnidentified :exec
+const reopenUnidentified = `-- name: ReopenUnidentified :one
 INSERT INTO discrepancies (kind, bank_statement_line_id, amount_kop, detected_at)
 VALUES ('unidentified', $1, $2, $3)
 ON CONFLICT (bank_statement_line_id) WHERE kind = 'unidentified'
 DO UPDATE SET status = 'open', resolution = NULL, resolution_note = NULL, resolved_by = NULL, resolved_at = NULL,
               contract_id = NULL, payment_id = NULL, detected_at = EXCLUDED.detected_at
+RETURNING id
 `
 
 type ReopenUnidentifiedParams struct {
@@ -1665,9 +1669,11 @@ type ReopenUnidentifiedParams struct {
 }
 
 // Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
-func (q *Queries) ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) error {
-	_, err := q.db.Exec(ctx, reopenUnidentified, arg.LineID, arg.AmountKop, arg.Now)
-	return err
+func (q *Queries) ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, reopenUnidentified, arg.LineID, arg.AmountKop, arg.Now)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const resolveDiscrepancy = `-- name: ResolveDiscrepancy :one

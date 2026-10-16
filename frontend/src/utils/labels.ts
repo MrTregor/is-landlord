@@ -201,6 +201,19 @@ export const discrepancyKindLabels: Record<S['DiscrepancyKind'], string> = {
   unidentified: 'Неопознанный платёж',
 }
 
+export const emailStatusLabels: Record<S['EmailStatus'], string> = {
+  queued: 'В очереди',
+  sent: 'Отправлено',
+  failed: 'Ошибка',
+  skipped: 'Пропущено',
+}
+
+export const emailRecipientLabels: Record<S['EmailRecipient'], string> = {
+  tenant: 'Нанимателю',
+  owner: 'Собственнику',
+  user: 'Пользователю',
+}
+
 export const fiscalStatusLabels: Record<S['FiscalStatus'], string> = {
   queued: 'В очереди',
   wait: 'Обрабатывается',
@@ -268,6 +281,13 @@ export const paymentStatusSeverity: Record<S['PaymentStatus'], Severity> = {
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'secondary',
+}
+
+export const emailStatusSeverity: Record<S['EmailStatus'], Severity> = {
+  queued: 'info',
+  sent: 'success',
+  failed: 'danger',
+  skipped: 'secondary',
 }
 
 export const bankLineStatusSeverity: Record<S['BankLineStatus'], Severity> = {

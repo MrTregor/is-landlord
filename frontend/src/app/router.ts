@@ -137,14 +137,19 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/modules/audit/pages/AuditPage.vue'),
     meta: { title: 'Журнал действий', section: 'audit', layout: 'owner', access: 'owner' },
   },
-  owner('/email-log', 'Письма', 'M10', 'email'),
+  page('/email-log', 'Письма', 'email', () => import('@/modules/email-log/pages/EmailLogPage.vue')),
   page(
     '/settings/document-templates/:kind',
     'Шаблон документа',
     'settings',
     () => import('@/modules/settings/pages/DocumentTemplatePage.vue'),
   ),
-  owner('/settings/email-templates/:code', 'Шаблон письма', 'M10', 'settings'),
+  page(
+    '/settings/email-templates/:code',
+    'Шаблон письма',
+    'settings',
+    () => import('@/modules/settings/pages/EmailTemplatePage.vue'),
+  ),
   {
     path: '/settings/:tab?',
     component: () => import('@/modules/settings/pages/SettingsPage.vue'),

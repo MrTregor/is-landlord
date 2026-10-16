@@ -3722,7 +3722,7 @@ components:
       enum: [invite, password_reset, payment_reminder, payment_overdue, payment_receipt, fiscal_receipt, contract_ending,
              rent_changed, readings_reminder, readings_rejected, request_status_changed, deposit_withheld, deposit_refunded,
              owner_payment_received, owner_discrepancy, owner_request_created, owner_readings_submitted, owner_indexation_due,
-             owner_fiscal_error, owner_daily_digest]
+             owner_fiscal_error, owner_daily_digest, owner_bank_refund]
     JobName:
       type: string
       enum: [contracts.daily, billing.rent_daily, billing.penalties_daily, billing.indexation_daily, pdn.retention_daily,

@@ -1,5 +1,6 @@
 // Package notify — письма (FR-10, docs/spec/10 Уведомления.md): создание записи email_log по шаблону
-// и постановка задачи email.send в той же транзакции. Остальные письма и плановые рассылки — этап M10.
+// и постановка задачи email.send в той же транзакции; каталог переменных и тексты по умолчанию. Плановые рассылки,
+// шаблоны и журнал отправки — пакет notify/mailing.
 package notify
 
 import (
@@ -7,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -75,19 +77,25 @@ func NewService(cfg *config.Config, clk clock.Clock, ins Inserter) *Service {
 // Queue создаёт запись email_log и задачу email.send в транзакции tx. Повтор с тем же dedupe_key ничего не делает.
 // Выключенный шаблон или пустой адрес → запись со статусом skipped.
 func (s *Service) Queue(ctx context.Context, tx *db.Tx, e Email) error {
+	_, err := s.Enqueue(ctx, tx, e)
+	return err
+}
+
+// Enqueue — Queue с признаком «письмо создано» (false — письмо с этим dedupe_key уже было): для итогов рассылок.
+func (s *Service) Enqueue(ctx context.Context, tx *db.Tx, e Email) (bool, error) {
 	t, err := tx.Q.GetEmailTemplate(ctx, e.Code)
 	if err != nil {
-		return fmt.Errorf("шаблон письма %s: %w", e.Code, err)
+		return false, fmt.Errorf("шаблон письма %s: %w", e.Code, err)
 	}
 	vars, err := s.commonVars(ctx, tx.Q)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for k, v := range e.Vars {
 		vars[k] = v
 	}
 	subject := html.UnescapeString(tmpl.Render(t.Subject, vars, nil, tmpl.Options{}))
-	body := s.wrap(tmpl.Render(t.BodyHtml, vars, e.Blocks, tmpl.Options{}), vars)
+	body := s.wrap(tmpl.Render(UnwrapBlocks(t.BodyHtml), vars, e.Blocks, tmpl.Options{}), vars)
 
 	status := "queued"
 	to := strings.TrimSpace(e.To)
@@ -103,7 +111,7 @@ func (s *Service) Queue(ctx context.Context, tx *db.Tx, e Email) error {
 	}
 	attJSON, err := json.Marshal(atts)
 	if err != nil {
-		return err
+		return false, err
 	}
 	params := sqlc.InsertEmailLogParams{
 		TemplateCode: e.Code, ToEmail: to, Subject: subject, BodyHtml: body, Attachments: attJSON,
@@ -114,15 +122,57 @@ func (s *Service) Queue(ctx context.Context, tx *db.Tx, e Email) error {
 	}
 	id, err := tx.Q.InsertEmailLog(ctx, params)
 	if db.IsNoRows(err) {
-		return nil // письмо с этим dedupe_key уже создано
+		return false, nil // письмо с этим dedupe_key уже создано
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if status != "queued" {
-		return nil
+		return true, nil
 	}
-	_, err = s.jobs.InsertTx(ctx, tx.Tx, EmailSendArgs{EmailLogID: id}, nil)
+	return true, s.Send(ctx, tx, id)
+}
+
+// Send ставит задачу email.send для записи email_log в транзакции tx.
+func (s *Service) Send(ctx context.Context, tx *db.Tx, emailLogID uuid.UUID) error {
+	_, err := s.jobs.InsertTx(ctx, tx.Tx, EmailSendArgs{EmailLogID: emailLogID}, nil)
+	return err
+}
+
+// QueueOwners — письмо всем действующим собственникам: по письму на каждого, dedupe_key + «:<userId>»
+// (10 Уведомления, раздел 1). Возвращает число созданных писем (повтор с тем же ключом — 0).
+func (s *Service) QueueOwners(ctx context.Context, tx *db.Tx, e Email) (int, error) {
+	owners, err := tx.Q.ActiveOwnerUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	key, n := e.DedupeKey, 0
+	for _, o := range owners {
+		e.To, e.DedupeKey = o.Email, key+":"+o.ID.String()
+		created, err := s.Enqueue(ctx, tx, e)
+		if err != nil {
+			return n, err
+		}
+		if created {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Виды расхождений для писем (04, справочник значений).
+var discrepancyKinds = map[string]string{
+	"underpayment": "Недоплата", "overpayment": "Переплата", "unidentified": "Неопознанный платёж",
+}
+
+// OwnerDiscrepancy — письмо собственникам owner_discrepancy о новом расхождении «неопознанный» или «переплата»
+// (10 Уведомления, раздел 3); повтор по тому же расхождению письмо не создаёт. amount — сумма в рублях текстом.
+func (s *Service) OwnerDiscrepancy(ctx context.Context, tx *db.Tx, id uuid.UUID, kind, amount, details string) error {
+	_, err := s.QueueOwners(ctx, tx, Email{
+		Code: "owner_discrepancy", DedupeKey: "owner_discrepancy:" + id.String(), RelatedType: "discrepancy", RelatedID: &id,
+		Vars: map[string]string{"kind_title": discrepancyKinds[kind], "amount": amount, "details": details,
+			"link": s.Link("/reconciliation")},
+	})
 	return err
 }
 
@@ -161,6 +211,12 @@ func (s *Service) wrap(body string, vars map[string]string) string {
 		`<div style="padding:16px 24px;color:#6b7280;font-size:12px;border-top:1px solid #e5e7eb">` + footer + `</div>` +
 		`</div></body></html>`
 }
+
+// blockParagraph — абзац, в котором только блок {{block:…}} (так его сохраняет редактор шаблонов).
+var blockParagraph = regexp.MustCompile(`<p>\s*(\{\{\s*block:[A-Za-z0-9_.]+\s*\}\})\s*</p>`)
+
+// UnwrapBlocks — блок вместо абзаца с ним: таблица не может стоять внутри <p>.
+func UnwrapBlocks(body string) string { return blockParagraph.ReplaceAllString(body, "$1") }
 
 // Link — абсолютная ссылка на страницу системы (APP_PUBLIC_URL + path).
 func (s *Service) Link(path string) string { return strings.TrimRight(s.cfg.AppPublicURL, "/") + path }

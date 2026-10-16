@@ -10,11 +10,13 @@ import (
 
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/file"
+	"landlord/backend/internal/notify"
 	"landlord/backend/internal/payment"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
+	"landlord/backend/internal/platform/money"
 	"landlord/backend/internal/platform/reqctx"
 )
 
@@ -25,11 +27,13 @@ type Service struct {
 	clock    clock.Clock
 	files    *file.Service
 	payments *payment.Service
+	notify   *notify.Service
 }
 
 // NewService создаёт сервис сверки.
-func NewService(database *db.DB, au *audit.Service, clk clock.Clock, fs *file.Service, ps *payment.Service) *Service {
-	return &Service{db: database, audit: au, clock: clk, files: fs, payments: ps}
+func NewService(database *db.DB, au *audit.Service, clk clock.Clock, fs *file.Service, ps *payment.Service, nt *notify.Service,
+) *Service {
+	return &Service{db: database, audit: au, clock: clk, files: fs, payments: ps, notify: nt}
 }
 
 func actorID(ctx context.Context) *uuid.UUID {
@@ -186,7 +190,12 @@ func (s *Service) processLine(ctx context.Context, tx *db.Tx, statementID uuid.U
 			return err
 		}
 		sum.unmatched++
-		return tx.Q.ReopenUnidentified(ctx, sqlc.ReopenUnidentifiedParams{LineID: &row.ID, AmountKop: row.AmountKop, Now: s.clock.Now()})
+		disc, err := tx.Q.ReopenUnidentified(ctx, sqlc.ReopenUnidentifiedParams{LineID: &row.ID, AmountKop: row.AmountKop, Now: s.clock.Now()})
+		if err != nil {
+			return err
+		}
+		return s.notify.OwnerDiscrepancy(ctx, tx, disc, "unidentified", money.Kop(row.AmountKop).Format(),
+			payment.UnidentifiedDetails(row))
 	}
 	contract, err := tx.Q.GetContractForUpdate(ctx, c.ID)
 	if err != nil {

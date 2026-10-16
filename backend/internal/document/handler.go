@@ -8,6 +8,7 @@ import (
 
 	"landlord/backend/internal/api"
 	"landlord/backend/internal/file"
+	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/db/sqlc"
 )
@@ -120,8 +121,7 @@ func (h *Handler) PreviewDocumentTemplate(ctx context.Context, req api.PreviewDo
 	return api.PreviewDocumentTemplate200ApplicationpdfResponse{Body: bytes.NewReader(out), ContentLength: int64(len(out))}, nil
 }
 
-// GetTemplateVariables — переменные шаблонов документов. Переменные писем добавляются на этапе M10
-// (редактор шаблонов писем), до этого — пустой список.
+// GetTemplateVariables — переменные шаблонов документов и писем.
 func (h *Handler) GetTemplateVariables(context.Context, api.GetTemplateVariablesRequestObject) (
 	api.GetTemplateVariablesResponseObject, error,
 ) {
@@ -133,6 +133,14 @@ func (h *Handler) GetTemplateVariables(context.Context, api.GetTemplateVariables
 			list = append(list, api.TemplateVariable{Key: v.Key, Title: v.Title, Example: v.Example})
 		}
 		out.Documents[k] = list
+	}
+	for _, code := range notify.Codes() {
+		vars := notify.Variables(code)
+		list := make([]api.TemplateVariable, 0, len(vars))
+		for _, v := range vars {
+			list = append(list, api.TemplateVariable{Key: v.Key, Title: v.Title, Example: v.Example})
+		}
+		out.Emails[code] = list
 	}
 	return api.GetTemplateVariables200JSONResponse(out), nil
 }

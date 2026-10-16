@@ -411,7 +411,7 @@ func (s *Service) markDone(ctx context.Context, tx *db.Tx, f sqlc.FiscalReceipt,
 		return err
 	}
 	vars["receipt_url"] = *done.OfdReceiptUrl
-	vars["amount"] = money.Kop(f.TotalKop).FormatRub()
+	vars["amount"] = money.Kop(f.TotalKop).Format()
 	return s.notify.Queue(ctx, tx, notify.Email{
 		Code: "fiscal_receipt", To: to, Vars: vars, DedupeKey: "fiscal_receipt:" + f.ID.String(),
 		RelatedType: "fiscal_receipt", RelatedID: &f.ID,
@@ -454,7 +454,7 @@ func (s *Service) markFail(ctx context.Context, tx *db.Tx, f sqlc.FiscalReceipt,
 			Code: "owner_fiscal_error", To: o.Email, RelatedType: "fiscal_receipt", RelatedID: &f.ID,
 			DedupeKey: fmt.Sprintf("owner_fiscal_error:%s:%d:%s", f.ID, failed.Attempts, o.ID),
 			Vars: map[string]string{
-				"amount": money.Kop(f.TotalKop).FormatRub(), "error_text": text, "contract.number": pc.ContractNumber,
+				"amount": money.Kop(f.TotalKop).Format(), "error_text": text, "contract.number": pc.ContractNumber,
 				"link": s.notify.Link("/fiscal-receipts"),
 			},
 		}); err != nil {

@@ -16,6 +16,8 @@ type Querier interface {
 	AcceptActReadings(ctx context.Context, arg AcceptActReadingsParams) error
 	AcceptPolicy(ctx context.Context, arg AcceptPolicyParams) error
 	AcceptReading(ctx context.Context, arg AcceptReadingParams) error
+	// Начисляемые на сегодня пени договора (остаток).
+	AccruingPenaltiesOf(ctx context.Context, contractID uuid.UUID) (int64, error)
 	// Показания, внесённые в акт (черновые — submitted, после подписания — accepted).
 	ActReadings(ctx context.Context, actID *uuid.UUID) ([]MeterReading, error)
 	ActivateContract(ctx context.Context, arg ActivateContractParams) (Contract, error)
@@ -57,6 +59,9 @@ type Querier interface {
 	ContractDocumentSince(ctx context.Context, arg ContractDocumentSinceParams) (bool, error)
 	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
 	ContractForPropertyMonth(ctx context.Context, arg ContractForPropertyMonthParams) (Contract, error)
+	// Плановые рассылки (07 Фоновые задачи, 8–10; 10 Уведомления, раздел 2)
+	// Адрес нанимателя и общие переменные письма по договору.
+	ContractMailInfo(ctx context.Context, id uuid.UUID) (ContractMailInfoRow, error)
 	// Месяцы, за которые у договоров есть начисления платы (чтобы не показывать прогноз для них).
 	ContractMonthsWithRent(ctx context.Context, ids []uuid.UUID) ([]ContractMonthsWithRentRow, error)
 	// Не черновой договор объекта, начинающийся в дату (чтобы не освобождать объект между договорами).
@@ -81,12 +86,15 @@ type Querier interface {
 	CountContractTimeline(ctx context.Context, contractID string) (int64, error)
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
 	CountDiscrepancies(ctx context.Context, arg CountDiscrepanciesParams) (int64, error)
+	CountEmailLog(ctx context.Context, arg CountEmailLogParams) (int64, error)
 	CountFiscalReceipts(ctx context.Context, arg CountFiscalReceiptsParams) (int64, error)
 	CountJobRuns(ctx context.Context, jobName *string) (int64, error)
 	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountPayments(ctx context.Context, arg CountPaymentsParams) (int64, error)
 	CountProperties(ctx context.Context, arg CountPropertiesParams) (int64, error)
 	CountReadings(ctx context.Context, arg CountReadingsParams) (int64, error)
+	// Повторные отправки письма: dedupe_key с суффиксом «:resend:<n>».
+	CountResends(ctx context.Context, prefix string) (int64, error)
 	CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateAct(ctx context.Context, arg CreateActParams) (ContractAct, error)
@@ -132,9 +140,21 @@ type Querier interface {
 	DepositReceiptOfPayment(ctx context.Context, paymentID *uuid.UUID) (DepositTransaction, error)
 	// Внесено и остаток залога (без отменённых операций).
 	DepositTotals(ctx context.Context, contractID uuid.UUID) (DepositTotalsRow, error)
+	DigestDiscrepancies(ctx context.Context) ([]DigestDiscrepanciesRow, error)
+	// Плановые задачи, завершившиеся с ошибкой за вчера и сегодня (бизнес-дата).
+	DigestFailedJobs(ctx context.Context, since date.Date) ([]string, error)
+	DigestFiscalErrors(ctx context.Context) (int64, error)
+	DigestNewRequests(ctx context.Context) ([]DigestNewRequestsRow, error)
+	// Утренняя сводка собственнику
+	// Договоры с просроченным долгом основного долга.
+	DigestOverdue(ctx context.Context, today date.Date) ([]DigestOverdueRow, error)
+	// Начисления основного долга с долгом и сроком оплаты @due_date (напоминание об оплате).
+	DueMainCharges(ctx context.Context, dueDate date.Date) ([]DueMainChargesRow, error)
 	// Возможный дубль (05 разд. 15.1, шаг 5): проведённый ручной или онлайн-платёж договора с той же суммой,
 	// датой поступления ±3 дня и без привязки к выписке.
 	DuplicateCandidates(ctx context.Context, arg DuplicateCandidatesParams) ([]Payment, error)
+	// Действующие договоры, срок которых заканчивается не позже @until (письмо об окончании договора).
+	EndingContracts(ctx context.Context, arg EndingContractsParams) ([]EndingContractsRow, error)
 	// Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
 	ExpiredPendingPayments(ctx context.Context, now *time.Time) ([]Payment, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
@@ -234,14 +254,15 @@ type Querier interface {
 	InsertManualCharge(ctx context.Context, arg InsertManualChargeParams) (uuid.UUID, error)
 	InsertOccupant(ctx context.Context, arg InsertOccupantParams) error
 	// Расхождения
-	// Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает.
-	InsertOverpayment(ctx context.Context, arg InsertOverpaymentParams) error
+	// Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает (нет строки в ответе).
+	InsertOverpayment(ctx context.Context, arg InsertOverpaymentParams) (uuid.UUID, error)
 	InsertOwnerReading(ctx context.Context, arg InsertOwnerReadingParams) (uuid.UUID, error)
 	// Платежи (FR-06.1), распределения, возвраты переплаты, обеспечительный платёж (FR-05.2), расхождения (FR-07.3).
 	InsertPayment(ctx context.Context, arg InsertPaymentParams) (Payment, error)
 	// Онлайн-оплата (FR-06.1, 08 разд. 1)
 	InsertPendingPayment(ctx context.Context, arg InsertPendingPaymentParams) (Payment, error)
 	InsertRefund(ctx context.Context, arg InsertRefundParams) (Refund, error)
+	InsertResend(ctx context.Context, arg InsertResendParams) (EmailLog, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
 	// Условия и проживающие
@@ -279,6 +300,10 @@ type Querier interface {
 	ListContractDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error)
 	ListContracts(ctx context.Context, arg ListContractsParams) ([]ListContractsRow, error)
 	ListDiscrepancies(ctx context.Context, arg ListDiscrepanciesParams) ([]ListDiscrepanciesRow, error)
+	// Журнал отправки (экран «Письма»)
+	ListEmailLog(ctx context.Context, arg ListEmailLogParams) ([]EmailLog, error)
+	// Шаблоны писем (FR-10.3)
+	ListEmailTemplates(ctx context.Context) ([]EmailTemplate, error)
 	ListFiscalReceipts(ctx context.Context, arg ListFiscalReceiptsParams) ([]ListFiscalReceiptsRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
 	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
@@ -309,6 +334,8 @@ type Querier interface {
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
 	// Договоры (кроме черновиков) с данными нанимателя для сопоставления строк выписки (05 разд. 15.1).
 	MatchContracts(ctx context.Context) ([]MatchContractsRow, error)
+	// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
+	MeterContracts(ctx context.Context, today date.Date) ([]MeterContractsRow, error)
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
 	MonthReadingExists(ctx context.Context, arg MonthReadingExistsParams) (bool, error)
 	// Показания счётчиков (FR-05.5).
@@ -328,6 +355,8 @@ type Querier interface {
 	OpenUnderpayment(ctx context.Context, contractID *uuid.UUID) (Discrepancy, error)
 	// Открытые недоплаты для billing.penalties_daily: остаток долга со сроком не позже даты обнаружения.
 	OpenUnderpaymentsAll(ctx context.Context) ([]OpenUnderpaymentsAllRow, error)
+	// Просроченные начисления основного долга: срок + льгота договора раньше @today.
+	OverdueMainCharges(ctx context.Context, today date.Date) ([]OverdueMainChargesRow, error)
 	// Не черновые договоры объекта, пересекающиеся с периодом [from, to] (05 разд. 4.4, п. 3).
 	OverlappingContracts(ctx context.Context, arg OverlappingContractsParams) ([]OverlappingContractsRow, error)
 	// Прямо изменяемые условия действующего договора (05 разд. 4.5).
@@ -376,7 +405,7 @@ type Querier interface {
 	RefundFiscalReceipt(ctx context.Context, refundID *uuid.UUID) (FiscalReceipt, error)
 	RejectReading(ctx context.Context, arg RejectReadingParams) error
 	// Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
-	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) error
+	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) (uuid.UUID, error)
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
 	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
 	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
@@ -458,6 +487,7 @@ type Querier interface {
 	UpdateAct(ctx context.Context, arg UpdateActParams) (ContractAct, error)
 	UpdateAmendment(ctx context.Context, arg UpdateAmendmentParams) (ContractAmendment, error)
 	UpdateDraftContract(ctx context.Context, arg UpdateDraftContractParams) (Contract, error)
+	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (EmailTemplate, error)
 	UpdateFirstTerms(ctx context.Context, arg UpdateFirstTermsParams) error
 	UpdateManualEvent(ctx context.Context, arg UpdateManualEventParams) error
 	UpdateMeter(ctx context.Context, arg UpdateMeterParams) (Meter, error)

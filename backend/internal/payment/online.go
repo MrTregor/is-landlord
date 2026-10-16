@@ -446,7 +446,7 @@ func (s *Service) notifyOwners(ctx context.Context, tx *db.Tx, c sqlc.Contract, 
 			Code: "owner_payment_received", To: o.Email, DedupeKey: "owner_payment:" + p.ID.String() + ":" + o.ID.String(),
 			RelatedType: "payment", RelatedID: &p.ID,
 			Vars: map[string]string{
-				"tenant.short_name": short, "amount": money.Kop(p.AmountKop).FormatRub(), "received_on": p.ReceivedOn.Format(),
+				"tenant.short_name": short, "amount": money.Kop(p.AmountKop).Format(), "received_on": p.ReceivedOn.Format(),
 				"method_title": methodTitle(p.Method), "contract.number": c.Number, "link": s.notify.Link("/payments/" + p.ID.String()),
 			},
 		}); err != nil {
@@ -479,7 +479,7 @@ func (s *Service) notifyOwnersBankRefund(ctx context.Context, tx *db.Tx, c sqlc.
 			Code: "owner_bank_refund", To: o.Email, RelatedType: "payment", RelatedID: &p.ID,
 			DedupeKey: "owner_bank_refund:" + p.ID.String() + ":" + status + ":" + o.ID.String(),
 			Vars: map[string]string{
-				"tenant.short_name": short, "amount": money.Kop(p.AmountKop).FormatRub(), "received_on": p.ReceivedOn.Format(),
+				"tenant.short_name": short, "amount": money.Kop(p.AmountKop).Format(), "received_on": p.ReceivedOn.Format(),
 				"receipt_number": valStr(p.ReceiptNumber), "status_title": title, "contract.number": c.Number,
 				"link": s.notify.Link("/payments/" + p.ID.String()),
 			},

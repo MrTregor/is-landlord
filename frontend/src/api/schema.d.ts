@@ -3287,7 +3287,7 @@ export interface components {
         /** @enum {string} */
         EmailRecipient: "tenant" | "owner" | "user";
         /** @enum {string} */
-        EmailTemplateCode: "invite" | "password_reset" | "payment_reminder" | "payment_overdue" | "payment_receipt" | "fiscal_receipt" | "contract_ending" | "rent_changed" | "readings_reminder" | "readings_rejected" | "request_status_changed" | "deposit_withheld" | "deposit_refunded" | "owner_payment_received" | "owner_discrepancy" | "owner_request_created" | "owner_readings_submitted" | "owner_indexation_due" | "owner_fiscal_error" | "owner_daily_digest";
+        EmailTemplateCode: "invite" | "password_reset" | "payment_reminder" | "payment_overdue" | "payment_receipt" | "fiscal_receipt" | "contract_ending" | "rent_changed" | "readings_reminder" | "readings_rejected" | "request_status_changed" | "deposit_withheld" | "deposit_refunded" | "owner_payment_received" | "owner_discrepancy" | "owner_request_created" | "owner_readings_submitted" | "owner_indexation_due" | "owner_fiscal_error" | "owner_daily_digest" | "owner_bank_refund";
         /** @enum {string} */
         JobName: "contracts.daily" | "billing.rent_daily" | "billing.penalties_daily" | "billing.indexation_daily" | "pdn.retention_daily" | "maintenance.cleanup" | "notify.owner_digest" | "notify.payment_reminders" | "notify.contract_end" | "notify.readings_reminder" | "fiscal.reconcile" | "payments.expire_pending";
         /** @enum {string} */

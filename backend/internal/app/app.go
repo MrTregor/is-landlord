@@ -21,6 +21,7 @@ import (
 	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify"
+	"landlord/backend/internal/notify/mailing"
 	"landlord/backend/internal/payment"
 	"landlord/backend/internal/platform/atol"
 	"landlord/backend/internal/platform/clock"
@@ -60,6 +61,7 @@ type App struct {
 	Payments  *payment.Service
 	Fiscal    *fiscal.Service
 	Reconcile *reconciliation.Service
+	Mailing   *mailing.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -95,7 +97,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		return nil, err
 	}
 	a.Tenants = tenant.NewService(database, a.Audit, clk, cipher, a.Auth, a.Settings, a.Files)
-	a.Billing = billing.NewService(database, a.Audit, clk, a.Settings)
+	a.Billing = billing.NewService(database, a.Audit, clk, a.Settings, a.Notify)
 	a.Meters = meter.NewService(database, a.Audit, clk, a.Billing, a.Notify)
 	conv := opt.PDF
 	if conv == nil {
@@ -114,7 +116,8 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		Client:          tbank.NewClient(cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword),
 		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log,
 	}, a.Fiscal)
-	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments)
+	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments, a.Notify)
+	a.Mailing = mailing.NewService(database, a.Audit, clk, a.Notify, a.Settings, a.Calendar)
 	return a, nil
 }
 
@@ -141,13 +144,15 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Jobs:      jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...)),
 			Fiscal:    fiscal.NewHandler(a.Fiscal),
 			Reconcile: reconciliation.NewHandler(a.Reconcile),
+			Mailing:   mailing.NewHandler(a.Mailing),
 		},
 	})
 }
 
 // Daily — реализованные ежедневные задачи в порядке выполнения (07 Фоновые задачи).
 func Daily() []jobs.Daily {
-	return []jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily()}
+	return append([]jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily()},
+		mailing.Schedules()...)
 }
 
 // Periodic — реализованные плановые задачи не ежедневного расписания (07 Фоновые задачи).
@@ -169,6 +174,10 @@ func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	jobs.Add(reg, &fiscal.SendWorker{Svc: a.Fiscal})
 	jobs.Add(reg, &fiscal.PollWorker{Svc: a.Fiscal})
 	jobs.Add(reg, &fiscal.ReconcileWorker{Svc: a.Fiscal})
+	jobs.Add(reg, &mailing.DigestWorker{Svc: a.Mailing})
+	jobs.Add(reg, &mailing.RemindersWorker{Svc: a.Mailing})
+	jobs.Add(reg, &mailing.ContractEndWorker{Svc: a.Mailing})
+	jobs.Add(reg, &mailing.ReadingsWorker{Svc: a.Mailing})
 	for _, d := range append(Daily(), Periodic()...) {
 		reg.AddDaily(d, a.Clock)
 	}

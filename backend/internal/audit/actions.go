@@ -30,6 +30,7 @@ var actionTitles = map[string]string{
 	"template.update":       "Изменение шаблона документа",
 	"template.reset":        "Сброс шаблона документа",
 	"email_template.update": "Изменение шаблона письма",
+	"email.resend":          "Повторная отправка письма",
 	"property.create":       "Создание объекта",
 	"property.update":       "Изменение объекта",
 	"property.status":       "Смена статуса объекта",

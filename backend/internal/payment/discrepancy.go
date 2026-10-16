@@ -194,3 +194,15 @@ func (s *Service) overpaymentAction(ctx context.Context, tx *db.Tx, d sqlc.Discr
 	}
 	return "refunded", nil
 }
+
+// UnidentifiedDetails — подробности неопознанного платежа для письма: дата, плательщик, назначение из выписки.
+func UnidentifiedDetails(l sqlc.BankStatementLine) string {
+	d := l.ReceivedOn.Format()
+	if l.PayerName != nil {
+		d += ", плательщик " + *l.PayerName
+	}
+	if l.Purpose != nil {
+		d += ", назначение «" + *l.Purpose + "»"
+	}
+	return d + "."
+}

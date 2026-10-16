@@ -12,6 +12,7 @@ import (
 
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/billing/calc"
+	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/date"
@@ -47,11 +48,12 @@ type Service struct {
 	audit    *audit.Service
 	clock    clock.Clock
 	settings *settings.Service
+	notify   *notify.Service
 }
 
 // NewService создаёт сервис начислений.
-func NewService(database *db.DB, au *audit.Service, clk clock.Clock, st *settings.Service) *Service {
-	return &Service{db: database, audit: au, clock: clk, settings: st}
+func NewService(database *db.DB, au *audit.Service, clk clock.Clock, st *settings.Service, nt *notify.Service) *Service {
+	return &Service{db: database, audit: au, clock: clk, settings: st, notify: nt}
 }
 
 // TermsOf переводит версии условий в calc.Terms.
@@ -409,13 +411,37 @@ func (s *Service) allocate(ctx context.Context, tx *db.Tx, paymentID uuid.UUID, 
 }
 
 // FlagOverpayment — расхождение «переплата» по платежу с остатком аванса (одно на платёж, 05 разд. 10.6).
+// Новое расхождение — письмо собственникам owner_discrepancy.
 func (s *Service) FlagOverpayment(ctx context.Context, tx *db.Tx, contractID, paymentID uuid.UUID, advance money.Kop) error {
 	if advance <= 0 {
 		return nil
 	}
-	return tx.Q.InsertOverpayment(ctx, sqlc.InsertOverpaymentParams{
+	id, err := tx.Q.InsertOverpayment(ctx, sqlc.InsertOverpaymentParams{
 		ContractID: &contractID, PaymentID: &paymentID, AmountKop: int64(advance), Now: s.clock.Now(),
 	})
+	if db.IsNoRows(err) {
+		return nil // расхождение по платежу уже было
+	}
+	if err != nil {
+		return err
+	}
+	c, err := tx.Q.GetContract(ctx, contractID)
+	if err != nil {
+		return err
+	}
+	p, err := tx.Q.GetPayment(ctx, paymentID)
+	if err != nil {
+		return err
+	}
+	number, on := "—", ""
+	if p.ReceiptNumber != nil {
+		number = *p.ReceiptNumber
+	}
+	if p.ReceivedOn != nil {
+		on = " от " + p.ReceivedOn.Format()
+	}
+	return s.notify.OwnerDiscrepancy(ctx, tx, id, "overpayment", advance.Format(),
+		fmt.Sprintf("Договор № %s, платёж %s%s: остаток после распределения на начисления.", c.Number, number, on))
 }
 
 // SyncOverpayments — открытые расхождения «переплата» договора: аванс израсходован (или платёж отменён) —

@@ -344,5 +344,5 @@ func TestBankRefundAfterConfirmed_FR06_1(t *testing.T) {
 	require.NoError(t, testsupport.Owner(t).QueryRow(context.Background(),
 		`SELECT body_html FROM email_log WHERE template_code = 'owner_bank_refund' AND related_entity_id = $1 LIMIT 1`, s.PaymentID).Scan(&body))
 	assert.Contains(t, body, "полный возврат")
-	assert.Contains(t, body, "28 000,00 руб.")
+	assert.Contains(t, body, "28 000,00 ₽")
 }

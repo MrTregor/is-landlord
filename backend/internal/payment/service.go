@@ -365,7 +365,16 @@ func (s *Service) cancelPayment(ctx context.Context, tx *db.Tx, p sqlc.Payment, 
 		if err := tx.Q.ReturnBankLineToUnmatched(ctx, *p.BankStatementLineID); err != nil {
 			return err
 		}
-		if err := tx.Q.ReopenUnidentified(ctx, sqlc.ReopenUnidentifiedParams{LineID: p.BankStatementLineID, AmountKop: p.AmountKop, Now: now}); err != nil {
+		line, err := tx.Q.GetBankLine(ctx, *p.BankStatementLineID)
+		if err != nil {
+			return err
+		}
+		disc, err := tx.Q.ReopenUnidentified(ctx, sqlc.ReopenUnidentifiedParams{LineID: p.BankStatementLineID, AmountKop: p.AmountKop, Now: now})
+		if err != nil {
+			return err
+		}
+		if err := s.notify.OwnerDiscrepancy(ctx, tx, disc, "unidentified", money.Kop(p.AmountKop).Format(),
+			UnidentifiedDetails(line)); err != nil {
 			return err
 		}
 	}

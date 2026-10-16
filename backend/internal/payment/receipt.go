@@ -73,7 +73,7 @@ func (s *Service) Receipt(ctx context.Context, paymentID uuid.UUID) (sqlc.Docume
 			return err
 		}
 		vars["receipt_number"] = *p.ReceiptNumber
-		vars["amount"] = money.Kop(p.AmountKop).FormatRub()
+		vars["amount"] = money.Kop(p.AmountKop).Format()
 		vars["received_on"] = p.ReceivedOn.Format()
 		return s.notify.Queue(ctx, tx, notify.Email{
 			Code: "payment_receipt", To: to, Vars: vars, DedupeKey: "payment_receipt:" + p.ID.String(),

@@ -10,7 +10,343 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"landlord/backend/internal/platform/date"
 )
+
+const accruingPenaltiesOf = `-- name: AccruingPenaltiesOf :one
+SELECT COALESCE(sum(amount_kop - paid_kop), 0)::bigint FROM charges
+WHERE contract_id = $1 AND kind = 'penalty' AND penalty_state = 'accruing' AND status IN ('open', 'partially_paid')
+`
+
+// Начисляемые на сегодня пени договора (остаток).
+func (q *Queries) AccruingPenaltiesOf(ctx context.Context, contractID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, accruingPenaltiesOf, contractID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const contractMailInfo = `-- name: ContractMailInfo :one
+
+SELECT c.id, c.number, c.status, c.end_date, c.penalty_grace_days, t.kind AS tenant_kind, t.first_name, t.middle_name,
+       t.email, t.anonymized_at, p.address AS property_address, p.code AS property_code
+FROM contracts c JOIN tenants t ON t.id = c.tenant_id JOIN properties p ON p.id = c.property_id
+WHERE c.id = $1
+`
+
+type ContractMailInfoRow struct {
+	ID               uuid.UUID
+	Number           string
+	Status           string
+	EndDate          date.Date
+	PenaltyGraceDays int16
+	TenantKind       string
+	FirstName        *string
+	MiddleName       *string
+	Email            *string
+	AnonymizedAt     *time.Time
+	PropertyAddress  string
+	PropertyCode     string
+}
+
+// Плановые рассылки (07 Фоновые задачи, 8–10; 10 Уведомления, раздел 2)
+// Адрес нанимателя и общие переменные письма по договору.
+func (q *Queries) ContractMailInfo(ctx context.Context, id uuid.UUID) (ContractMailInfoRow, error) {
+	row := q.db.QueryRow(ctx, contractMailInfo, id)
+	var i ContractMailInfoRow
+	err := row.Scan(
+		&i.ID,
+		&i.Number,
+		&i.Status,
+		&i.EndDate,
+		&i.PenaltyGraceDays,
+		&i.TenantKind,
+		&i.FirstName,
+		&i.MiddleName,
+		&i.Email,
+		&i.AnonymizedAt,
+		&i.PropertyAddress,
+		&i.PropertyCode,
+	)
+	return i, err
+}
+
+const countEmailLog = `-- name: CountEmailLog :one
+SELECT count(*)::bigint FROM email_log
+WHERE ($1::text IS NULL OR status = $1)
+  AND ($2::text IS NULL OR template_code = $2)
+  AND ($3::date IS NULL OR (created_at AT TIME ZONE 'Europe/Moscow')::date >= $3)
+  AND ($4::date IS NULL OR (created_at AT TIME ZONE 'Europe/Moscow')::date <= $4)
+  AND ($5::text IS NULL OR to_email::text ILIKE '%' || $5 || '%' OR subject ILIKE '%' || $5 || '%')
+`
+
+type CountEmailLogParams struct {
+	Status       *string
+	TemplateCode *string
+	DateFrom     *date.Date
+	DateTo       *date.Date
+	Q            *string
+}
+
+func (q *Queries) CountEmailLog(ctx context.Context, arg CountEmailLogParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEmailLog,
+		arg.Status,
+		arg.TemplateCode,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.Q,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countResends = `-- name: CountResends :one
+SELECT count(*)::bigint FROM email_log WHERE dedupe_key LIKE $1::text || ':resend:%'
+`
+
+// Повторные отправки письма: dedupe_key с суффиксом «:resend:<n>».
+func (q *Queries) CountResends(ctx context.Context, prefix string) (int64, error) {
+	row := q.db.QueryRow(ctx, countResends, prefix)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const digestDiscrepancies = `-- name: DigestDiscrepancies :many
+SELECT kind, count(*)::bigint AS n, sum(amount_kop)::bigint AS amount_kop FROM discrepancies
+WHERE status = 'open' GROUP BY kind ORDER BY kind
+`
+
+type DigestDiscrepanciesRow struct {
+	Kind      string
+	N         int64
+	AmountKop int64
+}
+
+func (q *Queries) DigestDiscrepancies(ctx context.Context) ([]DigestDiscrepanciesRow, error) {
+	rows, err := q.db.Query(ctx, digestDiscrepancies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DigestDiscrepanciesRow{}
+	for rows.Next() {
+		var i DigestDiscrepanciesRow
+		if err := rows.Scan(&i.Kind, &i.N, &i.AmountKop); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const digestFailedJobs = `-- name: DigestFailedJobs :many
+SELECT DISTINCT job_name FROM job_runs WHERE status = 'failed' AND business_date >= $1::date ORDER BY job_name
+`
+
+// Плановые задачи, завершившиеся с ошибкой за вчера и сегодня (бизнес-дата).
+func (q *Queries) DigestFailedJobs(ctx context.Context, since date.Date) ([]string, error) {
+	rows, err := q.db.Query(ctx, digestFailedJobs, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var job_name string
+		if err := rows.Scan(&job_name); err != nil {
+			return nil, err
+		}
+		items = append(items, job_name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const digestFiscalErrors = `-- name: DigestFiscalErrors :one
+SELECT count(*)::bigint FROM fiscal_receipts WHERE status IN ('fail', 'manual_required')
+`
+
+func (q *Queries) DigestFiscalErrors(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, digestFiscalErrors)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const digestNewRequests = `-- name: DigestNewRequests :many
+SELECT r.id, r.number, r.title, p.code AS property_code FROM maintenance_requests r JOIN properties p ON p.id = r.property_id
+WHERE r.status = 'new' ORDER BY r.created_at
+`
+
+type DigestNewRequestsRow struct {
+	ID           uuid.UUID
+	Number       string
+	Title        string
+	PropertyCode string
+}
+
+func (q *Queries) DigestNewRequests(ctx context.Context) ([]DigestNewRequestsRow, error) {
+	rows, err := q.db.Query(ctx, digestNewRequests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DigestNewRequestsRow{}
+	for rows.Next() {
+		var i DigestNewRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Title,
+			&i.PropertyCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const digestOverdue = `-- name: DigestOverdue :many
+
+SELECT c.id, c.number, p.code AS property_code, sum(ch.amount_kop - ch.paid_kop)::bigint AS overdue_kop
+FROM charges ch JOIN contracts c ON c.id = ch.contract_id JOIN properties p ON p.id = c.property_id
+WHERE c.status <> 'draft' AND ch.kind <> 'penalty' AND ch.status IN ('open', 'partially_paid')
+  AND ch.amount_kop > ch.paid_kop AND ch.due_date + c.penalty_grace_days < $1::date
+GROUP BY c.id, c.number, p.code
+ORDER BY c.number
+`
+
+type DigestOverdueRow struct {
+	ID           uuid.UUID
+	Number       string
+	PropertyCode string
+	OverdueKop   int64
+}
+
+// Утренняя сводка собственнику
+// Договоры с просроченным долгом основного долга.
+func (q *Queries) DigestOverdue(ctx context.Context, today date.Date) ([]DigestOverdueRow, error) {
+	rows, err := q.db.Query(ctx, digestOverdue, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DigestOverdueRow{}
+	for rows.Next() {
+		var i DigestOverdueRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.PropertyCode,
+			&i.OverdueKop,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const dueMainCharges = `-- name: DueMainCharges :many
+SELECT ch.id, ch.contract_id, ch.title, ch.due_date::date AS due_date, (ch.amount_kop - ch.paid_kop)::bigint AS outstanding_kop
+FROM charges ch JOIN contracts c ON c.id = ch.contract_id
+WHERE c.status <> 'draft' AND ch.kind <> 'penalty' AND ch.status IN ('open', 'partially_paid')
+  AND ch.due_date = $1::date AND ch.amount_kop > ch.paid_kop
+ORDER BY ch.contract_id, ch.due_date, ch.created_at
+`
+
+type DueMainChargesRow struct {
+	ID             uuid.UUID
+	ContractID     uuid.UUID
+	Title          string
+	DueDate        date.Date
+	OutstandingKop int64
+}
+
+// Начисления основного долга с долгом и сроком оплаты @due_date (напоминание об оплате).
+func (q *Queries) DueMainCharges(ctx context.Context, dueDate date.Date) ([]DueMainChargesRow, error) {
+	rows, err := q.db.Query(ctx, dueMainCharges, dueDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DueMainChargesRow{}
+	for rows.Next() {
+		var i DueMainChargesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContractID,
+			&i.Title,
+			&i.DueDate,
+			&i.OutstandingKop,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const endingContracts = `-- name: EndingContracts :many
+SELECT id, number, start_date, end_date FROM contracts
+WHERE status IN ('active', 'extended') AND end_date >= $1::date AND end_date <= $2::date
+ORDER BY end_date, number
+`
+
+type EndingContractsParams struct {
+	Today date.Date
+	Until date.Date
+}
+
+type EndingContractsRow struct {
+	ID        uuid.UUID
+	Number    string
+	StartDate date.Date
+	EndDate   date.Date
+}
+
+// Действующие договоры, срок которых заканчивается не позже @until (письмо об окончании договора).
+func (q *Queries) EndingContracts(ctx context.Context, arg EndingContractsParams) ([]EndingContractsRow, error) {
+	rows, err := q.db.Query(ctx, endingContracts, arg.Today, arg.Until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EndingContractsRow{}
+	for rows.Next() {
+		var i EndingContractsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.StartDate,
+			&i.EndDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const getEmailLog = `-- name: GetEmailLog :one
 SELECT id, template_code, to_email, subject, body_html, attachments, status, attempts, last_error, dedupe_key, related_entity_type, related_entity_id, created_at, sent_at FROM email_log WHERE id = $1
@@ -100,6 +436,144 @@ func (q *Queries) InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) 
 	return id, err
 }
 
+const insertResend = `-- name: InsertResend :one
+INSERT INTO email_log (template_code, to_email, subject, body_html, attachments, status, dedupe_key,
+                       related_entity_type, related_entity_id, created_at)
+SELECT src.template_code, src.to_email, src.subject, src.body_html, src.attachments, 'queued', $1::text,
+       src.related_entity_type, src.related_entity_id, $2::timestamptz
+FROM email_log src WHERE src.id = $3
+RETURNING id, template_code, to_email, subject, body_html, attachments, status, attempts, last_error, dedupe_key, related_entity_type, related_entity_id, created_at, sent_at
+`
+
+type InsertResendParams struct {
+	DedupeKey string
+	Now       time.Time
+	SourceID  uuid.UUID
+}
+
+func (q *Queries) InsertResend(ctx context.Context, arg InsertResendParams) (EmailLog, error) {
+	row := q.db.QueryRow(ctx, insertResend, arg.DedupeKey, arg.Now, arg.SourceID)
+	var i EmailLog
+	err := row.Scan(
+		&i.ID,
+		&i.TemplateCode,
+		&i.ToEmail,
+		&i.Subject,
+		&i.BodyHtml,
+		&i.Attachments,
+		&i.Status,
+		&i.Attempts,
+		&i.LastError,
+		&i.DedupeKey,
+		&i.RelatedEntityType,
+		&i.RelatedEntityID,
+		&i.CreatedAt,
+		&i.SentAt,
+	)
+	return i, err
+}
+
+const listEmailLog = `-- name: ListEmailLog :many
+
+SELECT id, template_code, to_email, subject, body_html, attachments, status, attempts, last_error, dedupe_key, related_entity_type, related_entity_id, created_at, sent_at FROM email_log
+WHERE ($1::text IS NULL OR status = $1)
+  AND ($2::text IS NULL OR template_code = $2)
+  AND ($3::date IS NULL OR (created_at AT TIME ZONE 'Europe/Moscow')::date >= $3)
+  AND ($4::date IS NULL OR (created_at AT TIME ZONE 'Europe/Moscow')::date <= $4)
+  AND ($5::text IS NULL OR to_email::text ILIKE '%' || $5 || '%' OR subject ILIKE '%' || $5 || '%')
+ORDER BY created_at DESC, id DESC
+LIMIT $7 OFFSET $6
+`
+
+type ListEmailLogParams struct {
+	Status       *string
+	TemplateCode *string
+	DateFrom     *date.Date
+	DateTo       *date.Date
+	Q            *string
+	Off          int32
+	Lim          int32
+}
+
+// Журнал отправки (экран «Письма»)
+func (q *Queries) ListEmailLog(ctx context.Context, arg ListEmailLogParams) ([]EmailLog, error) {
+	rows, err := q.db.Query(ctx, listEmailLog,
+		arg.Status,
+		arg.TemplateCode,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.Q,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EmailLog{}
+	for rows.Next() {
+		var i EmailLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.TemplateCode,
+			&i.ToEmail,
+			&i.Subject,
+			&i.BodyHtml,
+			&i.Attachments,
+			&i.Status,
+			&i.Attempts,
+			&i.LastError,
+			&i.DedupeKey,
+			&i.RelatedEntityType,
+			&i.RelatedEntityID,
+			&i.CreatedAt,
+			&i.SentAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEmailTemplates = `-- name: ListEmailTemplates :many
+
+SELECT code, name, recipient, subject, body_html, enabled, updated_by, updated_at FROM email_templates ORDER BY recipient DESC, code
+`
+
+// Шаблоны писем (FR-10.3)
+func (q *Queries) ListEmailTemplates(ctx context.Context) ([]EmailTemplate, error) {
+	rows, err := q.db.Query(ctx, listEmailTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EmailTemplate{}
+	for rows.Next() {
+		var i EmailTemplate
+		if err := rows.Scan(
+			&i.Code,
+			&i.Name,
+			&i.Recipient,
+			&i.Subject,
+			&i.BodyHtml,
+			&i.Enabled,
+			&i.UpdatedBy,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEmailAttemptFailed = `-- name: MarkEmailAttemptFailed :exec
 UPDATE email_log SET status = $2, attempts = attempts + 1, last_error = $3 WHERE id = $1
 `
@@ -127,4 +601,121 @@ type MarkEmailSentParams struct {
 func (q *Queries) MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error {
 	_, err := q.db.Exec(ctx, markEmailSent, arg.ID, arg.SentAt)
 	return err
+}
+
+const meterContracts = `-- name: MeterContracts :many
+SELECT id, number FROM contracts
+WHERE status IN ('active', 'extended') AND utilities_mode = 'meters' AND start_date <= $1::date
+ORDER BY number
+`
+
+type MeterContractsRow struct {
+	ID     uuid.UUID
+	Number string
+}
+
+// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
+func (q *Queries) MeterContracts(ctx context.Context, today date.Date) ([]MeterContractsRow, error) {
+	rows, err := q.db.Query(ctx, meterContracts, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MeterContractsRow{}
+	for rows.Next() {
+		var i MeterContractsRow
+		if err := rows.Scan(&i.ID, &i.Number); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueMainCharges = `-- name: OverdueMainCharges :many
+SELECT ch.id, ch.contract_id, ch.title, ch.due_date::date AS due_date, (ch.amount_kop - ch.paid_kop)::bigint AS outstanding_kop,
+       (ch.due_date + c.penalty_grace_days + 1)::date AS first_overdue
+FROM charges ch JOIN contracts c ON c.id = ch.contract_id
+WHERE c.status <> 'draft' AND ch.kind <> 'penalty' AND ch.status IN ('open', 'partially_paid')
+  AND ch.amount_kop > ch.paid_kop AND ch.due_date + c.penalty_grace_days < $1::date
+ORDER BY ch.contract_id, ch.due_date, ch.created_at
+`
+
+type OverdueMainChargesRow struct {
+	ID             uuid.UUID
+	ContractID     uuid.UUID
+	Title          string
+	DueDate        date.Date
+	OutstandingKop int64
+	FirstOverdue   date.Date
+}
+
+// Просроченные начисления основного долга: срок + льгота договора раньше @today.
+func (q *Queries) OverdueMainCharges(ctx context.Context, today date.Date) ([]OverdueMainChargesRow, error) {
+	rows, err := q.db.Query(ctx, overdueMainCharges, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OverdueMainChargesRow{}
+	for rows.Next() {
+		var i OverdueMainChargesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContractID,
+			&i.Title,
+			&i.DueDate,
+			&i.OutstandingKop,
+			&i.FirstOverdue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateEmailTemplate = `-- name: UpdateEmailTemplate :one
+UPDATE email_templates SET subject = $1, body_html = $2, enabled = $3,
+  updated_by = $4, updated_at = $5
+WHERE code = $6
+RETURNING code, name, recipient, subject, body_html, enabled, updated_by, updated_at
+`
+
+type UpdateEmailTemplateParams struct {
+	Subject   string
+	BodyHtml  string
+	Enabled   bool
+	UpdatedBy *uuid.UUID
+	Now       time.Time
+	Code      string
+}
+
+func (q *Queries) UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (EmailTemplate, error) {
+	row := q.db.QueryRow(ctx, updateEmailTemplate,
+		arg.Subject,
+		arg.BodyHtml,
+		arg.Enabled,
+		arg.UpdatedBy,
+		arg.Now,
+		arg.Code,
+	)
+	var i EmailTemplate
+	err := row.Scan(
+		&i.Code,
+		&i.Name,
+		&i.Recipient,
+		&i.Subject,
+		&i.BodyHtml,
+		&i.Enabled,
+		&i.UpdatedBy,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

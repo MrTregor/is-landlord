@@ -135,9 +135,9 @@ func (s *Service) Withhold(ctx context.Context, contractID uuid.UUID, in OpInput
 		if err != nil {
 			return err
 		}
-		vars["amount"] = money.Kop(in.AmountKop).FormatRub()
+		vars["amount"] = money.Kop(in.AmountKop).Format()
 		vars["reason"] = reason
-		vars["balance"] = money.Kop(rest).FormatRub()
+		vars["balance"] = money.Kop(rest).Format()
 		return s.notify.Queue(ctx, tx, notify.Email{
 			Code: "deposit_withheld", To: to, Vars: vars, DedupeKey: "deposit_withheld:" + op.ID.String(),
 			RelatedType: "contract", RelatedID: &c.ID,
@@ -242,7 +242,7 @@ func (s *Service) RefundDeposit(ctx context.Context, contractID uuid.UUID, in Op
 		if err != nil {
 			return err
 		}
-		vars["amount"] = money.Kop(in.AmountKop).FormatRub()
+		vars["amount"] = money.Kop(in.AmountKop).Format()
 		vars["op_date"] = in.OpDate.Format()
 		return s.notify.Queue(ctx, tx, notify.Email{
 			Code: "deposit_refunded", To: to, Vars: vars, DedupeKey: "deposit_refunded:" + op.ID.String(),

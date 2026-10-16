@@ -133,13 +133,14 @@ SELECT * FROM bank_statement_lines WHERE payment_id = $1;
 -- Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 UPDATE bank_statement_lines SET status = 'unmatched', payment_id = NULL, contract_id = NULL, match_method = NULL WHERE id = $1;
 
--- name: ReopenUnidentified :exec
+-- name: ReopenUnidentified :one
 -- Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
 INSERT INTO discrepancies (kind, bank_statement_line_id, amount_kop, detected_at)
 VALUES ('unidentified', @line_id, @amount_kop, @now)
 ON CONFLICT (bank_statement_line_id) WHERE kind = 'unidentified'
 DO UPDATE SET status = 'open', resolution = NULL, resolution_note = NULL, resolved_by = NULL, resolved_at = NULL,
-              contract_id = NULL, payment_id = NULL, detected_at = EXCLUDED.detected_at;
+              contract_id = NULL, payment_id = NULL, detected_at = EXCLUDED.detected_at
+RETURNING id;
 
 -- name: ClearPaymentBankLink :exec
 UPDATE payments SET bank_statement_line_id = NULL WHERE id = $1;
@@ -198,11 +199,12 @@ SELECT EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = @payment_id::uuid)::
 
 -- Расхождения
 
--- name: InsertOverpayment :exec
--- Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает.
+-- name: InsertOverpayment :one
+-- Расхождение «переплата» (одно на платёж, 05 разд. 10.6); повтор ничего не делает (нет строки в ответе).
 INSERT INTO discrepancies (kind, contract_id, payment_id, amount_kop, detected_at)
 VALUES ('overpayment', @contract_id, @payment_id, @amount_kop, @now)
-ON CONFLICT (payment_id) WHERE kind = 'overpayment' DO NOTHING;
+ON CONFLICT (payment_id) WHERE kind = 'overpayment' DO NOTHING
+RETURNING id;
 
 -- name: OpenOverpayments :many
 -- Открытые расхождения «переплата» договора со статусом платежа (аванс — запросом PaymentAdvance).
