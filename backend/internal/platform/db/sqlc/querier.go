@@ -34,6 +34,7 @@ type Querier interface {
 	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
+	BankLineRow(ctx context.Context, id uuid.UUID) (BankLineRowRow, error)
 	// Платежи договора, видимые нанимателю: проведённые и незавершённые онлайн (06 разд. 15).
 	CabinetPayments(ctx context.Context, contractID uuid.UUID) ([]CabinetPaymentsRow, error)
 	CancelAmendment(ctx context.Context, arg CancelAmendmentParams) (ContractAmendment, error)
@@ -75,6 +76,7 @@ type Querier interface {
 	ContractsToFinish(ctx context.Context, today date.Date) ([]Contract, error)
 	CountActiveMeters(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountAudit(ctx context.Context, arg CountAuditParams) (int64, error)
+	CountBankStatements(ctx context.Context) (int64, error)
 	CountCharges(ctx context.Context, arg CountChargesParams) (CountChargesRow, error)
 	CountContractTimeline(ctx context.Context, contractID string) (int64, error)
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
@@ -130,12 +132,16 @@ type Querier interface {
 	DepositReceiptOfPayment(ctx context.Context, paymentID *uuid.UUID) (DepositTransaction, error)
 	// Внесено и остаток залога (без отменённых операций).
 	DepositTotals(ctx context.Context, contractID uuid.UUID) (DepositTotalsRow, error)
+	// Возможный дубль (05 разд. 15.1, шаг 5): проведённый ручной или онлайн-платёж договора с той же суммой,
+	// датой поступления ±3 дня и без привязки к выписке.
+	DuplicateCandidates(ctx context.Context, arg DuplicateCandidatesParams) ([]Payment, error)
 	// Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
 	ExpiredPendingPayments(ctx context.Context, now *time.Time) ([]Payment, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
 	// Неудачные попытки по e-mail после начала окна и после последнего успешного входа.
 	FailedAttemptsByEmail(ctx context.Context, arg FailedAttemptsByEmailParams) (FailedAttemptsByEmailRow, error)
 	FailedAttemptsByIP(ctx context.Context, arg FailedAttemptsByIPParams) (int32, error)
+	FingerprintExists(ctx context.Context, fingerprint string) (bool, error)
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
 	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
@@ -147,6 +153,9 @@ type Querier interface {
 	GetAmendment(ctx context.Context, id uuid.UUID) (ContractAmendment, error)
 	GetAmendmentForUpdate(ctx context.Context, id uuid.UUID) (ContractAmendment, error)
 	GetAuthToken(ctx context.Context, arg GetAuthTokenParams) (GetAuthTokenRow, error)
+	GetBankLine(ctx context.Context, id uuid.UUID) (BankStatementLine, error)
+	GetBankLineForUpdate(ctx context.Context, id uuid.UUID) (BankStatementLine, error)
+	GetBankStatementRow(ctx context.Context, id uuid.UUID) (GetBankStatementRowRow, error)
 	GetCalendarEvent(ctx context.Context, id uuid.UUID) (GetCalendarEventRow, error)
 	GetCalendarEventForUpdate(ctx context.Context, id uuid.UUID) (CalendarEvent, error)
 	GetChargeForUpdate(ctx context.Context, id uuid.UUID) (Charge, error)
@@ -206,6 +215,8 @@ type Querier interface {
 	// Начисления (FR-05), распределения и пени.
 	// Автоначисление; повтор с тем же idempotency_key ничего не создаёт (нет строк в ответе).
 	InsertAutoCharge(ctx context.Context, arg InsertAutoChargeParams) (uuid.UUID, error)
+	InsertBankLine(ctx context.Context, arg InsertBankLineParams) (BankStatementLine, error)
+	InsertBankStatement(ctx context.Context, arg InsertBankStatementParams) (BankStatement, error)
 	InsertConsent(ctx context.Context, arg InsertConsentParams) (PdnConsent, error)
 	// Обеспечительный платёж
 	InsertDepositTx(ctx context.Context, arg InsertDepositTxParams) (DepositTransaction, error)
@@ -250,6 +261,8 @@ type Querier interface {
 	LastJobRuns(ctx context.Context) ([]JobRun, error)
 	// Дата последнего повышения платы: версия условий с платой выше предыдущей версии (нет строк — повышений не было).
 	LastRentIncrease(ctx context.Context, contractID uuid.UUID) (date.Date, error)
+	// Неопознанный платёж привязан к договору (05 разд. 15.2).
+	LinkUnidentified(ctx context.Context, arg LinkUnidentifiedParams) (Discrepancy, error)
 	ListActiveOwners(ctx context.Context) ([]User, error)
 	// Акты
 	ListActs(ctx context.Context, contractID uuid.UUID) ([]ContractAct, error)
@@ -257,6 +270,7 @@ type Querier interface {
 	// Допсоглашения
 	ListAmendments(ctx context.Context, contractID uuid.UUID) ([]ContractAmendment, error)
 	ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error)
+	ListBankStatements(ctx context.Context, arg ListBankStatementsParams) ([]ListBankStatementsRow, error)
 	// Календарь (FR-09) и история плановых задач.
 	ListCalendarEvents(ctx context.Context, arg ListCalendarEventsParams) ([]ListCalendarEventsRow, error)
 	// Список и сводки
@@ -284,12 +298,17 @@ type Querier interface {
 	ListTerms(ctx context.Context, contractID uuid.UUID) ([]ContractTerm, error)
 	ListTermsForContracts(ctx context.Context, ids []uuid.UUID) ([]ContractTerm, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	// Сверка (FR-07.2, FR-07.3): выписки банка, строки выписок, сопоставление с договорами.
+	// Загрузки выписок обрабатываются по одной: отпечатки строк сравниваются с уже сохранёнными.
+	LockStatements(ctx context.Context) error
 	// Блокировка версий вида на время сохранения новой версии.
 	LockTemplateKind(ctx context.Context, kind string) ([]uuid.UUID, error)
 	// Недоплата (05 разд. 10.7): остаток начислений основного долга со сроком не позже даты.
 	MainDebtDueBy(ctx context.Context, arg MainDebtDueByParams) (int64, error)
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
+	// Договоры (кроме черновиков) с данными нанимателя для сопоставления строк выписки (05 разд. 15.1).
+	MatchContracts(ctx context.Context) ([]MatchContractsRow, error)
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
 	MonthReadingExists(ctx context.Context, arg MonthReadingExistsParams) (bool, error)
 	// Показания счётчиков (FR-05.5).
@@ -377,6 +396,11 @@ type Querier interface {
 	ScheduleContracts(ctx context.Context, arg ScheduleContractsParams) ([]ScheduleContractsRow, error)
 	SetActDocument(ctx context.Context, arg SetActDocumentParams) error
 	SetAutoEventDone(ctx context.Context, arg SetAutoEventDoneParams) error
+	// Неопознанная строка: «возвращён плательщику» (refunded) или «не относится к аренде» (ignored).
+	SetBankLineClosed(ctx context.Context, arg SetBankLineClosedParams) error
+	// Строка привязана к платежу: сопоставлена автоматически, «тот же платёж», «другой платёж» или вручную.
+	SetBankLineMatched(ctx context.Context, arg SetBankLineMatchedParams) error
+	SetBankStatementStats(ctx context.Context, arg SetBankStatementStatsParams) error
 	SetChargeAmount(ctx context.Context, arg SetChargeAmountParams) error
 	SetDiscrepancyAmount(ctx context.Context, arg SetDiscrepancyAmountParams) error
 	SetDocumentSignedScan(ctx context.Context, arg SetDocumentSignedScanParams) (Document, error)
@@ -390,6 +414,8 @@ type Querier interface {
 	SetFiscalPayload(ctx context.Context, arg SetFiscalPayloadParams) error
 	SetFiscalWait(ctx context.Context, arg SetFiscalWaitParams) error
 	SetNextIndexation(ctx context.Context, arg SetNextIndexationParams) error
+	// Данные плательщика из строки выписки (05 разд. 15.1, шаги 5 и 6).
+	SetPaymentBankData(ctx context.Context, arg SetPaymentBankDataParams) (Payment, error)
 	SetPaymentFailed(ctx context.Context, arg SetPaymentFailedParams) error
 	SetPaymentInit(ctx context.Context, arg SetPaymentInitParams) error
 	SetPenaltyManual(ctx context.Context, arg SetPenaltyManualParams) error
@@ -409,6 +435,7 @@ type Querier interface {
 	// fiscal.reconcile: чеки в wait дольше минуты (07 Фоновые задачи).
 	StaleWaitFiscal(ctx context.Context) ([]uuid.UUID, error)
 	StartJobRun(ctx context.Context, arg StartJobRunParams) (uuid.UUID, error)
+	StatementLines(ctx context.Context, arg StatementLinesParams) ([]StatementLinesRow, error)
 	// Статусы объекта по договору (05 разд. 4.4, 4.7, 4.8)
 	// Записи истории объекта, пересекающие дату и позже (для постановки «Сдан» с даты начала).
 	StatusHistoryFrom(ctx context.Context, arg StatusHistoryFromParams) ([]PropertyStatusHistory, error)
@@ -427,6 +454,7 @@ type Querier interface {
 	TenantContracts(ctx context.Context, tenantID uuid.UUID) ([]TenantContractsRow, error)
 	TerminateContract(ctx context.Context, arg TerminateContractParams) (Contract, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UnidentifiedOfLine(ctx context.Context, bankStatementLineID *uuid.UUID) (Discrepancy, error)
 	UpdateAct(ctx context.Context, arg UpdateActParams) (ContractAct, error)
 	UpdateAmendment(ctx context.Context, arg UpdateAmendmentParams) (ContractAmendment, error)
 	UpdateDraftContract(ctx context.Context, arg UpdateDraftContractParams) (Contract, error)

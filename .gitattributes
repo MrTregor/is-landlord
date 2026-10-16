@@ -4,3 +4,5 @@
 *.jpg binary
 *.pdf binary
 *.xlsx binary
+# Образцы выписок: кодировка Windows-1251 и переводы строк CRLF — как у банка
+backend/testdata/** -text

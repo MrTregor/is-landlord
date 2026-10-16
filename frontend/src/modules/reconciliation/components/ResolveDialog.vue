@@ -1,19 +1,23 @@
 <script setup lang="ts">
 // Диалог «Разобрать» расхождение (14 Экраны собственника, раздел 7; 05 разд. 10.6, 15.2).
 // Переплата: «Оставить авансом», «Вернуть» (сумма, дата, способ), «Перенести в залог» (сумма); недоплата:
-// «Принять к сведению» (комментарий). Неопознанные платежи разбираются вместе с выписками (этап M9).
+// «Принять к сведению» (комментарий); неопознанный: «Привязать к договору» (подсказки — договоры, где наниматель
+// похож на плательщика), «Возвращён плательщику», «Не относится к аренде».
 import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
+import { useContracts } from '@/api/queries/contracts'
 import { useDiscrepancyMutations, type Discrepancy } from '@/api/queries/payments'
 import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import { discrepancyKindLabels, options, refundMethodLabels } from '@/utils/labels'
 import { formatKop } from '@/utils/money'
+import { formatDate } from '@/utils/date'
 import { parseProblem } from '@/utils/problem'
+import { groupContracts } from '../suggest'
 
-type Action = 'keep_advance' | 'refund' | 'move_to_deposit' | 'acknowledge'
+type Action = 'keep_advance' | 'refund' | 'move_to_deposit' | 'acknowledge' | 'link' | 'returned_to_payer' | 'ignore'
 
 const props = defineProps<{ discrepancy: Discrepancy }>()
 const visible = defineModel<boolean>('visible', { required: true })
@@ -26,8 +30,30 @@ const overActions: { value: Action; label: string }[] = [
   { value: 'refund', label: 'Вернуть' },
   { value: 'move_to_deposit', label: 'Перенести в залог' },
 ]
+const unidentifiedActions: { value: Action; label: string }[] = [
+  { value: 'link', label: 'Привязать к договору' },
+  { value: 'returned_to_payer', label: 'Возвращён плательщику' },
+  { value: 'ignore', label: 'Не относится к аренде' },
+]
+const isUnidentified = computed(() => props.discrepancy.kind === 'unidentified')
+const contracts = useContracts(() => ({
+  status: ['active', 'extended', 'terminated', 'finished'],
+  pageSize: 100,
+}))
+const contractGroups = computed(() =>
+  groupContracts(
+    props.discrepancy.bankLine?.payerName,
+    (contracts.data.value?.items ?? []).map((c) => ({
+      value: c.id,
+      label: `№ ${c.number} — ${c.property.code}, ${c.tenant.displayName}`,
+      tenant: c.tenant.displayName,
+    })),
+  ),
+)
+
 const form = reactive({
   action: 'keep_advance' as Action,
+  contractId: null as string | null,
   amountKop: null as number | null,
   refundedOn: null as string | null,
   method: 'bank_transfer' as 'bank_transfer' | 'cash',
@@ -42,7 +68,10 @@ watch(
   (v) => {
     if (!v) return
     Object.assign(form, {
-      action: props.discrepancy.kind === 'underpayment' ? 'acknowledge' : 'keep_advance',
+      action: { underpayment: 'acknowledge', overpayment: 'keep_advance', unidentified: 'link' }[
+        props.discrepancy.kind
+      ] as Action,
+      contractId: null,
       amountKop: props.discrepancy.amountKop,
       refundedOn: today(),
       method: 'bank_transfer',
@@ -69,6 +98,7 @@ const errors = computed(() => {
     else if (form.refundedOn > today()) e.refundedOn = 'Дата не может быть позже сегодняшней'
   }
   if (form.action === 'acknowledge' && !form.note.trim()) e.note = 'Укажите комментарий'
+  if (form.action === 'link' && !form.contractId) e.contractId = 'Выберите договор'
   return { ...e, ...serverErrors.value }
 })
 const err = (f: string) => (submitted.value || serverErrors.value[f] ? errors.value[f] : undefined)
@@ -83,6 +113,7 @@ async function save() {
       id: props.discrepancy.id,
       body: {
         action: form.action,
+        contractId: form.action === 'link' ? form.contractId : null,
         amountKop: needsAmount.value ? form.amountKop : null,
         refundedOn: form.action === 'refund' ? form.refundedOn : null,
         method: form.action === 'refund' ? form.method : null,
@@ -112,10 +143,7 @@ async function save() {
     :style="{ width: '520px' }"
     :breakpoints="{ '560px': '100vw' }"
   >
-    <Message v-if="discrepancy.kind === 'unidentified'" severity="info" :closable="false">
-      Разбор неопознанных платежей будет доступен вместе со сверкой выписок (этап M9 плана реализации).
-    </Message>
-    <form v-else class="form" novalidate @submit.prevent="save">
+    <form class="form" novalidate @submit.prevent="save">
       <p>
         Сумма: <strong><MoneyText :kop="discrepancy.amountKop" /></strong>
         <template v-if="discrepancy.contract">
@@ -126,7 +154,50 @@ async function save() {
           · <RouterLink :to="`/payments/${discrepancy.paymentId}`">платёж {{ discrepancy.receiptNumber }}</RouterLink>
         </template>
       </p>
-      <div v-if="discrepancy.kind === 'overpayment'" class="field">
+      <dl v-if="isUnidentified && discrepancy.bankLine" class="props">
+        <dt>Дата поступления</dt>
+        <dd>{{ formatDate(discrepancy.bankLine.receivedOn) }}</dd>
+        <dt>Плательщик</dt>
+        <dd>
+          {{ discrepancy.bankLine.payerName ?? '—' }}
+          <template v-if="discrepancy.bankLine.payerInn">, ИНН {{ discrepancy.bankLine.payerInn }}</template>
+        </dd>
+        <dt>Назначение</dt>
+        <dd>{{ discrepancy.bankLine.purpose ?? '—' }}</dd>
+      </dl>
+      <template v-if="isUnidentified">
+        <div class="field">
+          <label id="rd-uaction">Решение *</label>
+          <SelectButton
+            v-model="form.action"
+            :options="unidentifiedActions"
+            option-label="label"
+            option-value="value"
+            :allow-empty="false"
+            aria-labelledby="rd-uaction"
+          />
+        </div>
+        <div v-if="form.action === 'link'" class="field">
+          <label for="rd-contract">Договор *</label>
+          <Select
+            v-model="form.contractId"
+            input-id="rd-contract"
+            :options="contractGroups"
+            option-label="label"
+            option-value="value"
+            option-group-label="label"
+            option-group-children="items"
+            filter
+            filter-placeholder="Номер, наниматель, объект"
+            :loading="contracts.isFetching.value"
+            :invalid="!!err('contractId')"
+            fluid
+          />
+          <small v-if="err('contractId')" class="error">{{ err('contractId') }}</small>
+          <small class="hint">По строке будет создан платёж «из выписки» и распределён на начисления договора.</small>
+        </div>
+      </template>
+      <div v-else-if="discrepancy.kind === 'overpayment'" class="field">
         <label id="rd-action">Решение *</label>
         <SelectButton
           v-model="form.action"
@@ -197,3 +268,19 @@ async function save() {
     </form>
   </Dialog>
 </template>
+
+<style scoped>
+.props {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+.props dt {
+  color: var(--p-text-muted-color);
+}
+.props dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+</style>

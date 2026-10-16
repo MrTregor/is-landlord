@@ -64,8 +64,7 @@ var actionKinds = map[string]string{
 	"link":        "unidentified", "returned_to_payer": "unidentified", "ignore": "unidentified",
 }
 
-// Resolve — разбор расхождения собственником (05 разд. 10.6, 15.2). Неопознанные платежи разбираются вместе со
-// сверкой выписок (этап M9).
+// Resolve — разбор расхождения собственником (05 разд. 10.6, 15.2).
 func (s *Service) Resolve(ctx context.Context, id uuid.UUID, in ResolveInput) (uuid.UUID, error) {
 	note := trimPtr(in.Note)
 	err := s.db.WithTx(ctx, func(tx *db.Tx) error {
@@ -82,6 +81,14 @@ func (s *Service) Resolve(ctx context.Context, id uuid.UUID, in ResolveInput) (u
 				return err
 			}
 		}
+		if in.Action == "link" && row.Kind == "unidentified" {
+			if in.ContractID == nil {
+				return apperr.Validation(apperr.FieldError{Field: "contractId", Message: "Выберите договор"})
+			}
+			if _, err := lockContract(ctx, tx, *in.ContractID); err != nil {
+				return apperr.Validation(apperr.FieldError{Field: "contractId", Message: "Договор не найден"})
+			}
+		}
 		d, err := tx.Q.GetDiscrepancyForUpdate(ctx, id)
 		if err != nil {
 			return err
@@ -90,14 +97,22 @@ func (s *Service) Resolve(ctx context.Context, id uuid.UUID, in ResolveInput) (u
 		if !ok || kind != d.Kind {
 			return apperr.Validation(apperr.FieldError{Field: "action", Message: "Действие не подходит для этого расхождения"})
 		}
-		if d.Kind == "unidentified" {
-			return apperr.BusinessRule("Разбор неопознанных платежей появится вместе со сверкой выписок (этап M9)")
-		}
 		if d.Status != "open" {
 			return apperr.Conflict(apperr.CodeConflictState, "Расхождение уже разобрано")
 		}
 		var resolution string
 		switch in.Action {
+		case "link", "returned_to_payer", "ignore":
+			if resolution, err = s.resolveUnidentified(ctx, tx, d, in, note); err != nil {
+				return err
+			}
+			return s.audit.Record(ctx, tx.Q, audit.Entry{
+				Action: "discrepancy.resolve", EntityType: "discrepancy", EntityID: d.ID.String(),
+				Summary: fmt.Sprintf("Расхождение «%s» на %s: %s", KindTitles[d.Kind], money.Kop(d.AmountKop).Format(),
+					ResolutionTitles[resolution]),
+				Before: map[string]any{"status": d.Status},
+				After:  map[string]any{"status": "resolved", "resolution": resolution, "note": note, "contractId": in.ContractID},
+			})
 		case "keep_advance":
 			resolution = "kept_as_advance"
 		case "acknowledge":

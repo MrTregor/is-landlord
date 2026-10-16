@@ -71,6 +71,12 @@ func (s *Service) Store() *files.Store { return s.store }
 
 // Upload сохраняет загруженный файл. Наниматель загружает только фото к заявкам.
 func (s *Service) Upload(ctx context.Context, name, category string, r io.Reader) (sqlc.File, error) {
+	return s.UploadTx(ctx, s.db.Queries(), name, category, r)
+}
+
+// UploadTx — Upload в транзакции q (файл — часть изменяющего действия). Если транзакция затем отменена, файл
+// удаляется из хранилища вызовом Discard.
+func (s *Service) UploadTx(ctx context.Context, q *sqlc.Queries, name, category string, r io.Reader) (sqlc.File, error) {
 	a := reqctx.ActorFrom(ctx)
 	if a == nil {
 		return sqlc.File{}, apperr.Unauthorized()
@@ -96,7 +102,7 @@ func (s *Service) Upload(ctx context.Context, name, category string, r io.Reader
 	case err != nil:
 		return sqlc.File{}, err
 	}
-	f, err := s.db.Queries().InsertFile(ctx, sqlc.InsertFileParams{
+	f, err := q.InsertFile(ctx, sqlc.InsertFileParams{
 		StorageKey: st.StorageKey, OriginalName: cleanName(name, st.Kind.Ext), ContentType: st.Kind.ContentType,
 		SizeBytes: st.Size, Sha256: st.SHA256, Category: category, UploadedBy: &a.UserID, CreatedAt: s.clock.Now(),
 	})
@@ -106,6 +112,9 @@ func (s *Service) Upload(ctx context.Context, name, category string, r io.Reader
 	}
 	return f, nil
 }
+
+// Discard удаляет из хранилища файл, запись о котором не сохранилась (отменённая транзакция).
+func (s *Service) Discard(f sqlc.File) { _ = s.store.Remove(f.StorageKey) }
 
 // SaveGenerated сохраняет PDF, сформированный системой (документы), в транзакции q; права не проверяются.
 func (s *Service) SaveGenerated(ctx context.Context, q *sqlc.Queries, name, category string, data []byte, by *uuid.UUID,

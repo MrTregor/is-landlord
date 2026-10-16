@@ -29,6 +29,7 @@ import (
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/logging"
 	"landlord/backend/internal/property"
+	"landlord/backend/internal/reconciliation"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
 	"landlord/backend/internal/user"
@@ -62,22 +63,23 @@ type Deps struct {
 
 // Modules — обработчики модулей; их методы перекрывают заглушки 501.
 type Modules struct {
-	Auth     *auth.Handler
-	Users    *user.Handler
-	Audit    *audit.Handler
-	Settings *settings.Handler
-	Files    *file.Handler
-	Property *property.Handler
-	Meters   *meter.Handler
-	Tenants  *tenant.Handler
-	Contract *contract.Handler
-	Calendar *calendar.Handler
-	Document *document.Handler
-	Billing  *billing.Handler
-	Payments *payment.Handler
-	Cabinet  *cabinet.Handler
-	Jobs     *jobrun.Handler
-	Fiscal   *fiscal.Handler
+	Auth      *auth.Handler
+	Users     *user.Handler
+	Audit     *audit.Handler
+	Settings  *settings.Handler
+	Files     *file.Handler
+	Property  *property.Handler
+	Meters    *meter.Handler
+	Tenants   *tenant.Handler
+	Contract  *contract.Handler
+	Calendar  *calendar.Handler
+	Document  *document.Handler
+	Billing   *billing.Handler
+	Payments  *payment.Handler
+	Cabinet   *cabinet.Handler
+	Jobs      *jobrun.Handler
+	Fiscal    *fiscal.Handler
+	Reconcile *reconciliation.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
@@ -86,22 +88,23 @@ type unimplemented struct{ api.StrictUnimplemented }
 
 // Псевдонимы дают встроенным обработчикам модулей разные имена полей.
 type (
-	authHandler     = auth.Handler
-	userHandler     = user.Handler
-	auditHandler    = audit.Handler
-	settingsHandler = settings.Handler
-	fileHandler     = file.Handler
-	propertyHandler = property.Handler
-	meterHandler    = meter.Handler
-	tenantHandler   = tenant.Handler
-	contractHandler = contract.Handler
-	calendarHandler = calendar.Handler
-	documentHandler = document.Handler
-	billingHandler  = billing.Handler
-	paymentHandler  = payment.Handler
-	cabinetHandler  = cabinet.Handler
-	jobsHandler     = jobrun.Handler
-	fiscalHandler   = fiscal.Handler
+	authHandler      = auth.Handler
+	userHandler      = user.Handler
+	auditHandler     = audit.Handler
+	settingsHandler  = settings.Handler
+	fileHandler      = file.Handler
+	propertyHandler  = property.Handler
+	meterHandler     = meter.Handler
+	tenantHandler    = tenant.Handler
+	contractHandler  = contract.Handler
+	calendarHandler  = calendar.Handler
+	documentHandler  = document.Handler
+	billingHandler   = billing.Handler
+	paymentHandler   = payment.Handler
+	cabinetHandler   = cabinet.Handler
+	jobsHandler      = jobrun.Handler
+	fiscalHandler    = fiscal.Handler
+	reconcileHandler = reconciliation.Handler
 )
 
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
@@ -123,6 +126,7 @@ type Server struct {
 	*cabinetHandler
 	*jobsHandler
 	*fiscalHandler
+	*reconcileHandler
 
 	deps     Deps
 	dbPinger Pinger
@@ -140,8 +144,8 @@ func NewServer(deps Deps) *Server {
 		fileHandler: m.Files, propertyHandler: m.Property, meterHandler: m.Meters, tenantHandler: m.Tenants,
 		contractHandler: m.Contract, calendarHandler: m.Calendar, documentHandler: m.Document, billingHandler: m.Billing,
 		paymentHandler: m.Payments, cabinetHandler: m.Cabinet, jobsHandler: m.Jobs,
-		fiscalHandler: m.Fiscal,
-		deps:          deps, auth: deps.Auth, policy: deps.Policy,
+		fiscalHandler: m.Fiscal, reconcileHandler: m.Reconcile,
+		deps: deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {
 		s.dbPinger = deps.DB

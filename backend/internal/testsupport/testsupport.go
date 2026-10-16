@@ -337,16 +337,24 @@ func (w tWriter) Write(p []byte) (int, error) {
 // Upload — загрузка файла POST /files (multipart: file, category).
 func (c *Client) Upload(category, name string, data []byte) Response {
 	c.t.Helper()
+	return c.Multipart("/files", map[string]string{"category": category}, name, data)
+}
+
+// Multipart — POST path с полями fields и файлом file (multipart/form-data).
+func (c *Client) Multipart(path string, fields map[string]string, name string, data []byte) Response {
+	c.t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	_ = w.WriteField("category", category)
+	for k, v := range fields {
+		_ = w.WriteField(k, v)
+	}
 	fw, err := w.CreateFormFile("file", name)
 	if err != nil {
 		c.t.Fatal(err)
 	}
 	_, _ = fw.Write(data)
 	_ = w.Close()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, c.base+"/files", &body)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, c.base+path, &body)
 	if err != nil {
 		c.t.Fatal(err)
 	}

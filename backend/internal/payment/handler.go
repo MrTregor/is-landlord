@@ -134,8 +134,8 @@ func (h *Handler) detail(ctx context.Context, id uuid.UUID) (api.PaymentDetail, 
 	if d.FiscalReceipt, err = fiscal.PaymentReceipt(ctx, q, id); err != nil {
 		return d, err
 	}
-	// Строка выписки (bankLine) — этап M9.
-	return d, nil
+	d.BankLine, err = bankLineOf(ctx, q, p.BankStatementLineID)
+	return d, err
 }
 
 func refundDTO(r sqlc.Refund) api.RefundDTO {
@@ -340,7 +340,7 @@ func (h *Handler) GetContractSettlement(ctx context.Context, req api.GetContract
 
 // ---------------------------------------------------------------- Расхождения
 
-func discrepancyDTO(r sqlc.ListDiscrepanciesRow) api.DiscrepancyDTO {
+func discrepancyDTO(ctx context.Context, q *sqlc.Queries, r sqlc.ListDiscrepanciesRow) (api.DiscrepancyDTO, error) {
 	d := api.DiscrepancyDTO{
 		Id: r.ID, Kind: api.DiscrepancyKind(r.Kind), Status: api.DiscrepancyStatus(r.Status), PaymentId: r.PaymentID,
 		ReceiptNumber: r.ReceiptNumber, AmountKop: r.AmountKop, DetectedAt: r.DetectedAt, ResolutionNote: r.ResolutionNote,
@@ -355,7 +355,9 @@ func discrepancyDTO(r sqlc.ListDiscrepanciesRow) api.DiscrepancyDTO {
 	if r.Resolution != nil {
 		d.Resolution = apiconv.Ptr(api.DiscrepancyResolution(*r.Resolution))
 	}
-	return d
+	var err error
+	d.BankLine, err = bankLineOf(ctx, q, r.BankStatementLineID)
+	return d, err
 }
 
 // ListDiscrepancies — GET /discrepancies (по умолчанию — открытые).
@@ -374,8 +376,13 @@ func (h *Handler) ListDiscrepancies(ctx context.Context, req api.ListDiscrepanci
 		return nil, err
 	}
 	items := make([]api.DiscrepancyDTO, 0, len(rows))
+	q := h.svc.db.Queries()
 	for _, r := range rows {
-		items = append(items, discrepancyDTO(r))
+		d, err := discrepancyDTO(ctx, q, r)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, d)
 	}
 	return api.ListDiscrepancies200JSONResponse{Items: items, Total: int(n), Page: paging.Page, PageSize: paging.PageSize}, nil
 }
@@ -394,11 +401,13 @@ func (h *Handler) ResolveDiscrepancy(ctx context.Context, req api.ResolveDiscrep
 	if err != nil {
 		return nil, err
 	}
-	r, err := h.svc.db.Queries().GetDiscrepancyRow(ctx, id)
+	q := h.svc.db.Queries()
+	r, err := q.GetDiscrepancyRow(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return api.ResolveDiscrepancy200JSONResponse(discrepancyDTO(sqlc.ListDiscrepanciesRow(r))), nil
+	d, err := discrepancyDTO(ctx, q, sqlc.ListDiscrepanciesRow(r))
+	return api.ResolveDiscrepancy200JSONResponse(d), err
 }
 
 // CheckPaymentStatus — POST /payments/{id}/check-status: GetState и применение статуса (08 разд. 1.6).

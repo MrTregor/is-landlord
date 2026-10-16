@@ -59,8 +59,11 @@ export function useDiscrepancies(params: MaybeRefOrGetter<DiscrepanciesQuery>) {
   })
 }
 
-/** После операций с деньгами обновляются платежи, начисления, договоры (залог, взаиморасчёт), расхождения, сводка. */
-function useRefresh() {
+/**
+ * После операций с деньгами обновляются платежи, начисления, договоры (залог, взаиморасчёт), расхождения, выписки,
+ * сводка.
+ */
+export function useMoneyRefresh() {
   const qc = useQueryClient()
   return () =>
     Promise.all(
@@ -69,6 +72,7 @@ function useRefresh() {
         'charges',
         'contracts',
         'discrepancies',
+        'statements',
         'properties',
         'tenants',
         'calendar',
@@ -79,7 +83,7 @@ function useRefresh() {
 }
 
 export function usePaymentMutations() {
-  const refresh = useRefresh()
+  const refresh = useMoneyRefresh()
   const byId = (id: string) => ({ params: { path: { id } } })
   return {
     create: useMutation({
@@ -109,7 +113,7 @@ export function usePaymentMutations() {
 }
 
 export function useDepositMutations() {
-  const refresh = useRefresh()
+  const refresh = useMoneyRefresh()
   const byId = (id: string) => ({ params: { path: { id } } })
   return {
     withhold: useMutation({
@@ -136,7 +140,7 @@ export function useDepositMutations() {
 }
 
 export function useDiscrepancyMutations() {
-  const refresh = useRefresh()
+  const refresh = useMoneyRefresh()
   return {
     resolve: useMutation({
       mutationFn: (v: { id: string; body: S['DiscrepancyResolveInput'] }) =>

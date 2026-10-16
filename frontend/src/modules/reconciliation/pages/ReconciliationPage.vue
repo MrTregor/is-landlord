@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Сверка (14 Экраны собственника, раздел 7). Вкладка «Расхождения» — этап M6 (переплата, недоплата);
-// «Выписки банка» и разбор неопознанных платежей — этап M9.
+// Сверка (14 Экраны собственника, раздел 7): вкладки «Расхождения» (переплата, недоплата, неопознанный платёж)
+// и «Выписки банка».
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDiscrepancies, type DiscrepanciesQuery, type Discrepancy } from '@/api/queries/payments'
 import MoneyText from '@/components/MoneyText.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import PlannedTab from '@/components/PlannedTab.vue'
 import { formatDate, formatDateTime } from '@/utils/date'
 import { discrepancyKindLabels, discrepancyResolutionLabels, discrepancyStatusLabels, options } from '@/utils/labels'
 import { useListQuery } from '@/utils/listQuery'
 import ResolveDialog from '../components/ResolveDialog.vue'
+import StatementsTab from '../components/StatementsTab.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -145,7 +145,7 @@ const d = (x: unknown) => x as Discrepancy
             </Column>
           </DataTable>
         </TabPanel>
-        <TabPanel value="statements"><PlannedTab stage="M9" /></TabPanel>
+        <TabPanel value="statements"><StatementsTab /></TabPanel>
       </TabPanels>
     </Tabs>
     <ResolveDialog v-if="resolving" v-model:visible="resolveDialog" :discrepancy="resolving" />

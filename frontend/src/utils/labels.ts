@@ -127,6 +127,29 @@ export const discrepancyResolutionLabels: Record<S['DiscrepancyResolution'], str
   auto_closed: 'Закрыто автоматически',
 }
 
+/** Статусы строк выписки (14 Экраны собственника, раздел 7.1). */
+export const bankLineStatusLabels: Record<S['BankLineStatus'], string> = {
+  matched: 'Сопоставлен',
+  possible_duplicate: 'Возможный дубль',
+  unmatched: 'Не опознан',
+  duplicate: 'Дубль',
+  linked_manual: 'Привязан вручную',
+  refunded: 'Возвращён плательщику',
+  ignored: 'Не относится к аренде',
+}
+
+export const matchMethodLabels: Record<S['MatchMethod'], string> = {
+  contract_number: 'По номеру договора',
+  payer_inn: 'По ИНН',
+  payer_name: 'По имени плательщика',
+  manual: 'Вручную',
+}
+
+export const statementFormatLabels: Record<S['StatementFormat'], string> = {
+  '1c': '1С',
+  csv: 'CSV',
+}
+
 export const depositOperationLabels: Record<S['DepositOperationKind'], string> = {
   receipt: 'Внесение',
   withholding: 'Удержание',
@@ -245,6 +268,16 @@ export const paymentStatusSeverity: Record<S['PaymentStatus'], Severity> = {
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'secondary',
+}
+
+export const bankLineStatusSeverity: Record<S['BankLineStatus'], Severity> = {
+  matched: 'success',
+  possible_duplicate: 'warn',
+  unmatched: 'danger',
+  duplicate: 'secondary',
+  linked_manual: 'success',
+  refunded: 'secondary',
+  ignored: 'secondary',
 }
 
 export const taxRegimeLabels: Record<S['TaxRegime'], string> = {

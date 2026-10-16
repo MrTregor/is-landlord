@@ -356,7 +356,9 @@ func (s *Service) cancelPayment(ctx context.Context, tx *db.Tx, p sqlc.Payment, 
 			return err
 		}
 	}
-	if p.Source == SourceBankImport && p.BankStatementLineID != nil {
+	// Строка выписки возвращается в «не опознан» и для платежа, связанного с ней как «тот же платёж»
+	// (docs/open-questions.md, № 72).
+	if p.BankStatementLineID != nil {
 		if err := tx.Q.ClearPaymentBankLink(ctx, p.ID); err != nil {
 			return err
 		}

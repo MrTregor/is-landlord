@@ -118,7 +118,12 @@ export const routes: RouteRecordRaw[] = [
     'reconciliation',
     () => import('@/modules/reconciliation/pages/ReconciliationPage.vue'),
   ),
-  owner('/reconciliation/statements/:id', 'Выписка банка', 'M9', 'reconciliation'),
+  page(
+    '/reconciliation/statements/:id',
+    'Выписка банка',
+    'reconciliation',
+    () => import('@/modules/reconciliation/pages/StatementPage.vue'),
+  ),
   page('/readings', 'Показания счётчиков', 'readings', () => import('@/modules/readings/pages/ReadingsPage.vue')),
   owner('/requests', 'Заявки', 'M11', 'requests'),
   owner('/requests/:id', 'Заявка', 'M11', 'requests'),

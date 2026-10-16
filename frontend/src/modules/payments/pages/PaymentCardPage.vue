@@ -11,6 +11,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import { formatDate } from '@/utils/date'
 import {
   chargeKindLabel,
+  matchMethodLabels,
   paymentMethodLabels,
   paymentPurposeLabels,
   paymentSourceLabels,
@@ -178,6 +179,33 @@ async function cancelPayment() {
           <h3>Чек</h3>
           <FiscalReceiptBlock v-if="p.fiscalReceipt" :receipt="p.fiscalReceipt" />
           <p v-else class="hint">Чек не формировался.</p>
+        </section>
+        <section v-if="p.bankLine" class="block">
+          <h3>Выписка</h3>
+          <dl class="props">
+            <dt>Строка</dt>
+            <dd>
+              <RouterLink :to="`/reconciliation/statements/${p.bankLine.statementId}`">
+                № {{ p.bankLine.lineNo
+                }}<template v-if="p.bankLine.docNumber">, документ {{ p.bankLine.docNumber }}</template>
+              </RouterLink>
+            </dd>
+            <dt>Поступление</dt>
+            <dd>{{ formatDate(p.bankLine.receivedOn) }}, <MoneyText :kop="p.bankLine.amountKop" /></dd>
+            <template v-if="p.bankLine.payerInn || p.bankLine.payerAccount">
+              <dt>Плательщик</dt>
+              <dd>
+                <template v-if="p.bankLine.payerInn">ИНН {{ p.bankLine.payerInn }}</template>
+                <template v-if="p.bankLine.payerAccount"> · счёт {{ p.bankLine.payerAccount }}</template>
+              </dd>
+            </template>
+            <dt>Назначение</dt>
+            <dd>{{ p.bankLine.purpose ?? '—' }}</dd>
+            <template v-if="p.bankLine.matchMethod">
+              <dt>Сопоставлен</dt>
+              <dd>{{ matchMethodLabels[p.bankLine.matchMethod] }}</dd>
+            </template>
+          </dl>
         </section>
       </div>
 

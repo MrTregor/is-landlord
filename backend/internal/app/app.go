@@ -31,6 +31,7 @@ import (
 	"landlord/backend/internal/platform/pdf"
 	"landlord/backend/internal/platform/tbank"
 	"landlord/backend/internal/property"
+	"landlord/backend/internal/reconciliation"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
 	"landlord/backend/internal/user"
@@ -58,6 +59,7 @@ type App struct {
 	Calendar  *calendar.Service
 	Payments  *payment.Service
 	Fiscal    *fiscal.Service
+	Reconcile *reconciliation.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -112,6 +114,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		Client:          tbank.NewClient(cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword),
 		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log,
 	}, a.Fiscal)
+	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments)
 	return a, nil
 }
 
@@ -121,22 +124,23 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 		Config: a.Config, Log: a.Log, Clock: a.Clock, DB: a.DB, Gotenberg: gotenberg,
 		Auth: a.Auth, Policy: a.Settings,
 		Modules: httpserver.Modules{
-			Auth:     auth.NewHandler(a.Auth),
-			Users:    user.NewHandler(a.Users),
-			Audit:    audit.NewHandler(a.Audit, a.Clock),
-			Settings: settings.NewHandler(a.Settings),
-			Files:    file.NewHandler(a.Files),
-			Property: property.NewHandler(a.Property),
-			Meters:   meter.NewHandler(a.Meters),
-			Tenants:  tenant.NewHandler(a.Tenants),
-			Contract: contract.NewHandler(a.Contract),
-			Calendar: calendar.NewHandler(a.Calendar),
-			Document: document.NewHandler(a.Documents),
-			Billing:  billing.NewHandler(a.Billing),
-			Payments: payment.NewHandler(a.Payments),
-			Cabinet:  cabinet.NewHandler(a.DB, a.Clock, a.Payments, a.Documents),
-			Jobs:     jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...)),
-			Fiscal:   fiscal.NewHandler(a.Fiscal),
+			Auth:      auth.NewHandler(a.Auth),
+			Users:     user.NewHandler(a.Users),
+			Audit:     audit.NewHandler(a.Audit, a.Clock),
+			Settings:  settings.NewHandler(a.Settings),
+			Files:     file.NewHandler(a.Files),
+			Property:  property.NewHandler(a.Property),
+			Meters:    meter.NewHandler(a.Meters),
+			Tenants:   tenant.NewHandler(a.Tenants),
+			Contract:  contract.NewHandler(a.Contract),
+			Calendar:  calendar.NewHandler(a.Calendar),
+			Document:  document.NewHandler(a.Documents),
+			Billing:   billing.NewHandler(a.Billing),
+			Payments:  payment.NewHandler(a.Payments),
+			Cabinet:   cabinet.NewHandler(a.DB, a.Clock, a.Payments, a.Documents),
+			Jobs:      jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...)),
+			Fiscal:    fiscal.NewHandler(a.Fiscal),
+			Reconcile: reconciliation.NewHandler(a.Reconcile),
 		},
 	})
 }
