@@ -5664,7 +5664,8 @@ components:
     IncomeByKinds:
       type: object
       description: Доходные операции по видам (05 разд. 12.1); возвраты — со знаком минус.
-      required: [rentKop, utilitiesKop, penaltyKop, damageKop, otherKop, advanceKop, depositWithheldKop, refundsKop, incomeKop]
+      required: [rentKop, utilitiesKop, penaltyKop, damageKop, otherKop, advanceKop, depositWithheldKop, refundsKop, toDepositKop,
+                 incomeKop]
       properties:
         rentKop: { $ref: "#/components/schemas/Kop" }
         utilitiesKop: { $ref: "#/components/schemas/Kop" }
@@ -5674,6 +5675,7 @@ components:
         advanceKop: { $ref: "#/components/schemas/Kop" }
         depositWithheldKop: { $ref: "#/components/schemas/Kop" }
         refundsKop: { $ref: "#/components/schemas/Kop" }
+        toDepositKop: { $ref: "#/components/schemas/Kop", description: "Переносы переплаты в залог — со знаком минус (05 разд. 12.1)" }
         incomeKop: { $ref: "#/components/schemas/Kop", description: "Поступления, всего" }
     IncomeExpenseTotals:
       allOf:

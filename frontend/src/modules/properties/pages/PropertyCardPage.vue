@@ -7,13 +7,13 @@ import { useToast } from 'primevue/usetoast'
 import { useProperty, usePropertyMutations } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import PlannedTab from '@/components/PlannedTab.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { formatDate, toIsoDate } from '@/utils/date'
 import { propertyKindLabels, propertyStatusLabels, propertyStatusSeverity } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
 import ChargesTab from '../components/ChargesTab.vue'
 import ExpensesTab from '../components/ExpensesTab.vue'
+import ProfitabilityTab from '../components/ProfitabilityTab.vue'
 import RequestsTab from '../components/RequestsTab.vue'
 import ContractsTab from '../components/ContractsTab.vue'
 import InventoryTab from '../components/InventoryTab.vue'
@@ -39,7 +39,7 @@ const tabs = [
   { value: 'meters', label: 'Счётчики' },
   { value: 'inventory', label: 'Опись имущества' },
   { value: 'history', label: 'История статусов' },
-  { value: 'profitability', label: 'Доходность', stage: 'M12' },
+  { value: 'profitability', label: 'Доходность' },
 ]
 const tab = computed({
   get: () =>
@@ -165,15 +165,15 @@ async function saveStatus() {
           <TabPanel value="contracts"><ContractsTab v-if="tab === 'contracts'" :property-id="p.id" /></TabPanel>
           <TabPanel value="charges"><ChargesTab v-if="tab === 'charges'" :property-id="p.id" /></TabPanel>
           <TabPanel value="expenses"><ExpensesTab v-if="tab === 'expenses'" :property-id="p.id" /></TabPanel>
+          <TabPanel value="profitability"
+            ><ProfitabilityTab v-if="tab === 'profitability'" :property-id="p.id"
+          /></TabPanel>
           <TabPanel value="requests"><RequestsTab v-if="tab === 'requests'" :property-id="p.id" /></TabPanel>
           <TabPanel value="meters"
             ><MetersTab v-if="tab === 'meters'" :property-id="p.id" :archived="!!p.archivedAt"
           /></TabPanel>
           <TabPanel value="inventory"><InventoryTab v-if="tab === 'inventory'" :property-id="p.id" /></TabPanel>
           <TabPanel value="history"><StatusHistoryTab v-if="tab === 'history'" :property-id="p.id" /></TabPanel>
-          <template v-for="t in tabs" :key="t.value">
-            <TabPanel v-if="t.stage" :value="t.value"><PlannedTab :stage="t.stage" /></TabPanel>
-          </template>
         </TabPanels>
       </Tabs>
 

@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { PaymentsQuery } from '@/api/queries/payments'
 import DateInput from '@/components/DateInput.vue'
+import { xlsxUrl } from '@/api/queries/reports'
 import PageHeader from '@/components/PageHeader.vue'
 import { options, paymentMethodLabels, paymentSourceLabels, paymentStatusLabels } from '@/utils/labels'
 import { useListQuery } from '@/utils/listQuery'
@@ -24,6 +25,12 @@ const query = computed<PaymentsQuery>(() => ({
   page: state.value.page,
   pageSize: state.value.pageSize,
 }))
+/** Выгрузка XLSX с теми же фильтрами, без страницы (11 разд. 8). */
+const exportUrl = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page, pageSize, ...rest } = query.value as Record<string, unknown>
+  return xlsxUrl('/payments.xlsx', rest as Parameters<typeof xlsxUrl>[1])
+})
 
 const search = ref(str('q') ?? '')
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -39,6 +46,7 @@ const dialog = ref(false)
   <div>
     <PageHeader title="Платежи">
       <template #actions>
+        <Button as="a" :href="exportUrl" download label="Выгрузить в Excel" icon="pi pi-file-excel" outlined />
         <Button label="Зарегистрировать платёж" icon="pi pi-plus" @click="dialog = true" />
       </template>
     </PageHeader>

@@ -50,3 +50,9 @@ export function parseRubToKop(input: string): number {
   const kop = Number(total)
   return sign === '-' ? -kop : kop
 }
+
+/** Процент из строки API «64.5» → «64,5 %»; null — «—». */
+export function formatPct(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '—'
+  return `${value.replace('.', ',')} %`
+}

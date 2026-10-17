@@ -49,6 +49,11 @@ type Querier interface {
 	ChargeByKey(ctx context.Context, idempotencyKey *string) (Charge, error)
 	// Распределения на начисление с датами поступления платежей (для расчёта пеней).
 	ChargePayments(ctx context.Context, chargeID uuid.UUID) ([]ChargePaymentsRow, error)
+	// Оплата начислений по датам поступления (для даты полного погашения).
+	ChargePaymentsByIDs(ctx context.Context, ids []uuid.UUID) ([]ChargePaymentsByIDsRow, error)
+	// Начислено (11 разд. 2): неотменённые начисления со сроком в периоде; начисляемые пени — по текущей сумме, если срок
+	// их исходного начисления в периоде.
+	ChargedByProperty(ctx context.Context, arg ChargedByPropertyParams) ([]ChargedByPropertyRow, error)
 	// Начисления с сроком в диапазоне (календарь, 05 разд. 13.2).
 	ChargesInRange(ctx context.Context, arg ChargesInRangeParams) ([]ChargesInRangeRow, error)
 	ClearPaymentBankLink(ctx context.Context, id uuid.UUID) error
@@ -57,6 +62,8 @@ type Querier interface {
 	ContractBalances(ctx context.Context, arg ContractBalancesParams) ([]ContractBalancesRow, error)
 	// Неотменённые начисления договора (пересчёт при допсоглашении и расторжении).
 	ContractChargesForUpdate(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
+	// Долг по договорам на сегодня: начисления со сроком не позже сегодня и начисляемые пени.
+	ContractDebtsToday(ctx context.Context, today date.Date) ([]ContractDebtsTodayRow, error)
 	// Сформирован ли документ договора не раньше момента since (05 разд. 4.4, п. 7).
 	ContractDocumentSince(ctx context.Context, arg ContractDocumentSinceParams) (bool, error)
 	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
@@ -119,9 +126,18 @@ type Querier interface {
 	CurrentStatusRow(ctx context.Context, propertyID uuid.UUID) (PropertyStatusHistory, error)
 	// Момент «через N секунд» по часам сервера БД: по ним River планирует задачи (не зависит от сдвига демо-даты).
 	DBTimeAfter(ctx context.Context, seconds int32) (time.Time, error)
+	// Сводка (06 разд. 5)
+	DashboardCounters(ctx context.Context) (DashboardCountersRow, error)
+	// Задолженность на сегодня: срок наступил (и начисляемые пени); просрочено — срок + льгота прошли.
+	DashboardDebts(ctx context.Context, today date.Date) (DashboardDebtsRow, error)
 	DeactivateTemplates(ctx context.Context, kind string) error
 	DebtByProperty(ctx context.Context, ids []uuid.UUID) ([]DebtByPropertyRow, error)
 	DebtByTenant(ctx context.Context, ids []uuid.UUID) ([]DebtByTenantRow, error)
+	// Задолженность (11 разд. 4)
+	// Неотменённые начисления, созданные не позднее даты, и их оплата платежами, поступившими не позднее даты.
+	DebtCharges(ctx context.Context, asOf date.Date) ([]DebtChargesRow, error)
+	// Договоры (кроме черновиков): наниматель, объект, остаток залога, аванс и последний платёж на дату.
+	DebtContracts(ctx context.Context, asOf date.Date) ([]DebtContractsRow, error)
 	DeleteActReadings(ctx context.Context, actID *uuid.UUID) error
 	DeleteAutoEvent(ctx context.Context, autoKey *string) error
 	// Удалить невыполненные автособытия с ключом, начинающимся с prefix (пересоздание при изменении сроков).
@@ -172,6 +188,7 @@ type Querier interface {
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
 	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
+	FirstStatusDates(ctx context.Context) ([]FirstStatusDatesRow, error)
 	// Данные для чека: платёж, договор, наниматель, объект.
 	FiscalPaymentContext(ctx context.Context, id uuid.UUID) (FiscalPaymentContextRow, error)
 	FiscalReceiptByUUID(ctx context.Context, externalUuid *string) (FiscalReceipt, error)
@@ -237,6 +254,14 @@ type Querier interface {
 	HasActiveContractOn(ctx context.Context, arg HasActiveContractOnParams) (bool, error)
 	HasIndexationAmendment(ctx context.Context, arg HasIndexationAmendmentParams) (bool, error)
 	HasSucceededJobRun(ctx context.Context, arg HasSucceededJobRunParams) (bool, error)
+	// Удержания из залога и переносы переплаты в залог периода (без отменённых), внесения и возвраты залога (справочно).
+	IncomeDepositOps(ctx context.Context, arg IncomeDepositOpsParams) ([]IncomeDepositOpsRow, error)
+	// Отчёты (FR-11) и сводка (FR-14): исходные данные; расчёты — в пакете report.
+	// Платежи «за начисления» периода (кассовый метод, 05 разд. 12.2) с активными распределениями; строка без начисления —
+	// платёж без распределений (весь — аванс).
+	IncomePaymentLines(ctx context.Context, arg IncomePaymentLinesParams) ([]IncomePaymentLinesRow, error)
+	// Возвраты переплаты периода (доход со знаком минус).
+	IncomeRefunds(ctx context.Context, arg IncomeRefundsParams) ([]IncomeRefundsRow, error)
 	InsertActReading(ctx context.Context, arg InsertActReadingParams) error
 	InsertAdjustment(ctx context.Context, arg InsertAdjustmentParams) error
 	InsertAllocation(ctx context.Context, arg InsertAllocationParams) error
@@ -378,6 +403,8 @@ type Querier interface {
 	OpenUnderpayment(ctx context.Context, contractID *uuid.UUID) (Discrepancy, error)
 	// Открытые недоплаты для billing.penalties_daily: остаток долга со сроком не позже даты обнаружения.
 	OpenUnderpaymentsAll(ctx context.Context) ([]OpenUnderpaymentsAllRow, error)
+	// Начисления платы и ЖКУ со сроком в периоде (случаи просрочки, 11 разд. 4) и льгота договора.
+	OverdueCandidates(ctx context.Context, arg OverdueCandidatesParams) ([]OverdueCandidatesRow, error)
 	// Просроченные начисления основного долга: срок + льгота договора раньше @today.
 	OverdueMainCharges(ctx context.Context, today date.Date) ([]OverdueMainChargesRow, error)
 	// Не черновые договоры объекта, пересекающиеся с периодом [from, to] (05 разд. 4.4, п. 3).
@@ -430,6 +457,9 @@ type Querier interface {
 	// Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
 	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) (uuid.UUID, error)
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	ReportExpenses(ctx context.Context, arg ReportExpensesParams) ([]ReportExpensesRow, error)
+	// Объекты для отчётов: неархивные и архивированные позже начала периода.
+	ReportProperties(ctx context.Context, arg ReportPropertiesParams) ([]ReportPropertiesRow, error)
 	RequestEvents(ctx context.Context, requestID uuid.UUID) ([]RequestEventsRow, error)
 	RequestPhotos(ctx context.Context, requestID uuid.UUID) ([]File, error)
 	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
@@ -495,6 +525,8 @@ type Querier interface {
 	// Статусы объекта по договору (05 разд. 4.4, 4.7, 4.8)
 	// Записи истории объекта, пересекающие дату и позже (для постановки «Сдан» с даты начала).
 	StatusHistoryFrom(ctx context.Context, arg StatusHistoryFromParams) ([]PropertyStatusHistory, error)
+	// Интервалы истории статусов, пересекающиеся с периодом (05 разд. 2.2).
+	StatusHistoryInRange(ctx context.Context, arg StatusHistoryInRangeParams) ([]StatusHistoryInRangeRow, error)
 	SucceedPayment(ctx context.Context, arg SucceedPaymentParams) (Payment, error)
 	// Повторное формирование: прежние документы того же предмета получают ссылку на новый.
 	SupersedeDocuments(ctx context.Context, arg SupersedeDocumentsParams) error

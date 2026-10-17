@@ -15,7 +15,7 @@ type Handler struct {
 // NewHandler создаёт обработчик.
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
-func toDTO(e Event) api.CalendarEventDTO {
+func ToDTO(e Event) api.CalendarEventDTO {
 	d := api.CalendarEventDTO{
 		Id: e.ID, Kind: api.CalendarEventKind(e.Kind), Title: e.Title, Date: apiconv.FromDate(e.Date), StartTime: e.StartTime,
 		EndTime: e.EndTime, Source: api.CalendarEventSource(e.Source), Done: e.Done, Notes: e.Notes, AmountKop: e.AmountKop,
@@ -45,7 +45,7 @@ func (h *Handler) ListCalendarEvents(ctx context.Context, req api.ListCalendarEv
 	}
 	out := make(api.ListCalendarEvents200JSONResponse, 0, len(events))
 	for _, e := range events {
-		out = append(out, toDTO(e))
+		out = append(out, ToDTO(e))
 	}
 	return out, nil
 }
@@ -60,7 +60,7 @@ func (h *Handler) CreateCalendarEvent(ctx context.Context, req api.CreateCalenda
 	if err != nil {
 		return nil, err
 	}
-	return api.CreateCalendarEvent201JSONResponse(toDTO(e)), nil
+	return api.CreateCalendarEvent201JSONResponse(ToDTO(e)), nil
 }
 
 // UpdateCalendarEvent — PUT /calendar/events/{id}: ручные — все поля; автоматические — только заметки.
@@ -86,7 +86,7 @@ func (h *Handler) UpdateCalendarEvent(ctx context.Context, req api.UpdateCalenda
 	if err != nil {
 		return nil, err
 	}
-	return api.UpdateCalendarEvent200JSONResponse(toDTO(e)), nil
+	return api.UpdateCalendarEvent200JSONResponse(ToDTO(e)), nil
 }
 
 // DeleteCalendarEvent — DELETE /calendar/events/{id}.
@@ -103,5 +103,5 @@ func (h *Handler) SetCalendarEventDone(ctx context.Context, req api.SetCalendarE
 	if err != nil {
 		return nil, err
 	}
-	return api.SetCalendarEventDone200JSONResponse(toDTO(e)), nil
+	return api.SetCalendarEventDone200JSONResponse(ToDTO(e)), nil
 }

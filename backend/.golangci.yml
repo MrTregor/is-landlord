@@ -45,6 +45,9 @@ linters:
     rules:
       - path: internal/platform/clock/
         linters: [forbidigo]
+      # Запись денег числом в ячейку XLSX (decimal → число) — единственное разрешённое место.
+      - path: internal/platform/xlsx/
+        linters: [forbidigo]
       - path: internal/api/stubgen/
         linters: [gosec]
       - path: _test\.go

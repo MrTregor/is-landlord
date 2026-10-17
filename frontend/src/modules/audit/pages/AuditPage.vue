@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { xlsxUrl } from '@/api/queries/reports'
 import { useToast } from 'primevue/usetoast'
 import { api, unwrap } from '@/api/client'
 import type { components } from '@/api/schema'
@@ -31,6 +32,12 @@ const query = computed(() => ({
   page: Number(route.query.page ?? 1) || 1,
   pageSize: Number(route.query.pageSize ?? 25) || 25,
 }))
+/** Выгрузка журнала XLSX с фильтрами списка (до 50 000 строк, 11 разд. 7). */
+const exportUrl = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page, pageSize, ...rest } = query.value
+  return xlsxUrl('/audit.xlsx', rest)
+})
 
 function setQuery(patch: Record<string, string | number | undefined>, resetPage = true) {
   const next: Record<string, string> = {}
@@ -115,13 +122,7 @@ async function verify() {
   <div>
     <PageHeader title="Журнал действий">
       <template #actions>
-        <Button
-          label="Выгрузить в Excel"
-          icon="pi pi-file-excel"
-          outlined
-          disabled
-          title="Выгрузка журнала в Excel появится на этапе M12"
-        />
+        <Button as="a" :href="exportUrl" download label="Выгрузить в Excel" icon="pi pi-file-excel" outlined />
         <Button label="Проверить целостность" icon="pi pi-shield" :loading="verifying" @click="verify" />
       </template>
     </PageHeader>

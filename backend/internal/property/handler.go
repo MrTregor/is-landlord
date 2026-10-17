@@ -20,10 +20,14 @@ import (
 // Handler — методы API объектов.
 type Handler struct {
 	svc *Service
+	ytd YearToDate
 }
 
-// NewHandler создаёт обработчик.
-func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
+// YearToDate — поступления и заполняемость объекта с начала года (считает пакет report).
+type YearToDate func(ctx context.Context, propertyID uuid.UUID) (incomeKop int64, occupancyPct *string, err error)
+
+// NewHandler создаёт обработчик; ytd — показатели с начала года (nil — нули).
+func NewHandler(svc *Service, ytd YearToDate) *Handler { return &Handler{svc: svc, ytd: ytd} }
 
 func toInput(code string, kind api.PropertyKind, address string, area api.Decimal, floor, rooms *int,
 	cadastral, ownership *string, furnished bool, description *string, rent int64, fiscal api.FiscalMode) (Input, error) {
@@ -132,7 +136,13 @@ func (h *Handler) detail(ctx context.Context, p sqlc.Property) (api.PropertyDeta
 	if err != nil {
 		return api.PropertyDetail{}, err
 	}
-	// Расходы с начала года и открытые заявки (этап M11); поступления и заполняемость — этап M12.
+	var incomeYtd int64
+	var occupancyYtd *string
+	if h.ytd != nil {
+		if incomeYtd, occupancyYtd, err = h.ytd(ctx, p.ID); err != nil {
+			return api.PropertyDetail{}, err
+		}
+	}
 	openRequests, err := q.OpenRequestsOfProperty(ctx, p.ID)
 	if err != nil {
 		return api.PropertyDetail{}, err
@@ -153,7 +163,8 @@ func (h *Handler) detail(ctx context.Context, p sqlc.Property) (api.PropertyDeta
 		Furnished: p.Furnished, Description: p.Description, ExpectedRentKop: p.ExpectedRentKop,
 		FiscalMode: api.FiscalMode(p.FiscalMode), Status: api.PropertyStatus(p.Status),
 		StatusSince: apiconv.FromDate(since), ArchivedAt: p.ArchivedAt, Photos: ph, CurrentContract: contractRef(current, p.ID),
-		Stats: api.PropertyStats{ExpensesYtdKop: expensesYtd, OpenRequests: int(openRequests)},
+		Stats: api.PropertyStats{IncomeYtdKop: incomeYtd, ExpensesYtdKop: expensesYtd, OccupancyYtdPct: occupancyYtd,
+			OpenRequests: int(openRequests)},
 	}, nil
 }
 

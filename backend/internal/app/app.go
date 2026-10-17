@@ -35,6 +35,7 @@ import (
 	"landlord/backend/internal/platform/tbank"
 	"landlord/backend/internal/property"
 	"landlord/backend/internal/reconciliation"
+	"landlord/backend/internal/report"
 	"landlord/backend/internal/settings"
 	"landlord/backend/internal/tenant"
 	"landlord/backend/internal/user"
@@ -66,6 +67,7 @@ type App struct {
 	Mailing   *mailing.Service
 	Requests  *maintenance.Service
 	Expenses  *expense.Service
+	Reports   *report.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -123,6 +125,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments, a.Notify)
 	a.Requests = maintenance.NewService(database, a.Audit, clk, a.Notify)
 	a.Expenses = expense.NewService(database, a.Audit, clk, a.Billing, a.Payments)
+	a.Reports = report.NewService(database, clk, a.Settings, a.Calendar)
 	a.Mailing = mailing.NewService(database, a.Audit, clk, a.Notify, a.Settings, a.Calendar)
 	return a, nil
 }
@@ -138,7 +141,7 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Audit:     audit.NewHandler(a.Audit, a.Clock),
 			Settings:  settings.NewHandler(a.Settings),
 			Files:     file.NewHandler(a.Files),
-			Property:  property.NewHandler(a.Property),
+			Property:  property.NewHandler(a.Property, a.Reports.YearToDate),
 			Meters:    meter.NewHandler(a.Meters),
 			Tenants:   tenant.NewHandler(a.Tenants),
 			Contract:  contract.NewHandler(a.Contract),
@@ -153,6 +156,7 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Mailing:   mailing.NewHandler(a.Mailing),
 			Requests:  maintenance.NewHandler(a.Requests),
 			Expenses:  expense.NewHandler(a.Expenses),
+			Reports:   report.NewHandler(a.Reports),
 		},
 	})
 }

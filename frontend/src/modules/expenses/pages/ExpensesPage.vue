@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { useExpenses, type ExpensesQuery } from '@/api/queries/maintenance'
 import { useProperties } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
+import { xlsxUrl } from '@/api/queries/reports'
 import PageHeader from '@/components/PageHeader.vue'
 import { expenseCategoryLabels, options } from '@/utils/labels'
 import { useListQuery } from '@/utils/listQuery'
@@ -22,6 +23,12 @@ const query = computed<ExpensesQuery>(() => ({
   page: state.value.page,
   pageSize: state.value.pageSize,
 }))
+/** Выгрузка XLSX с теми же фильтрами, без страницы (11 разд. 8). */
+const exportUrl = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page, pageSize, ...rest } = query.value as Record<string, unknown>
+  return xlsxUrl('/expenses.xlsx', rest as Parameters<typeof xlsxUrl>[1])
+})
 const list = useExpenses(query)
 const properties = useProperties(() => ({ pageSize: 100 }))
 const propertyOptions = computed(() =>
@@ -34,6 +41,7 @@ const dialog = ref(false)
   <div>
     <PageHeader title="Затраты">
       <template #actions>
+        <Button as="a" :href="exportUrl" download label="Выгрузить в Excel" icon="pi pi-file-excel" outlined />
         <Button label="Добавить затрату" icon="pi pi-plus" @click="dialog = true" />
       </template>
     </PageHeader>

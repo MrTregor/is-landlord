@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import type { ChargesQuery } from '@/api/queries/charges'
 import { useProperties } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
+import { xlsxUrl } from '@/api/queries/reports'
 import PageHeader from '@/components/PageHeader.vue'
 import { chargeKindLabel, chargeStatusLabels, options } from '@/utils/labels'
 import { useListQuery } from '@/utils/listQuery'
@@ -41,6 +42,12 @@ const query = computed<ChargesQuery>(() => ({
   page: state.value.page,
   pageSize: state.value.pageSize,
 }))
+/** Выгрузка XLSX с теми же фильтрами, без страницы (11 разд. 8). */
+const exportUrl = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page, pageSize, ...rest } = query.value as Record<string, unknown>
+  return xlsxUrl('/charges.xlsx', rest as Parameters<typeof xlsxUrl>[1])
+})
 
 const search = ref(str('q') ?? '')
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -62,6 +69,7 @@ const manualDialog = ref(false)
   <div>
     <PageHeader title="Начисления">
       <template #actions>
+        <Button as="a" :href="exportUrl" download label="Выгрузить в Excel" icon="pi pi-file-excel" outlined />
         <Button label="Ручное начисление" icon="pi pi-plus" @click="manualDialog = true" />
       </template>
     </PageHeader>

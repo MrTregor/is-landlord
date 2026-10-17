@@ -313,6 +313,19 @@ export const bankLineStatusSeverity: Record<S['BankLineStatus'], Severity> = {
   ignored: 'secondary',
 }
 
+/** Виды доходных операций (05 разд. 12.1). */
+export const incomeKindLabels: Record<S['IncomeKind'], string> = {
+  rent: 'Плата за наём',
+  utilities: 'Компенсация ЖКУ',
+  penalty: 'Пени',
+  damage: 'Возмещение ущерба',
+  other: 'Прочее',
+  advance: 'Аванс',
+  deposit_withholding: 'Удержание из залога',
+  refund: 'Возврат переплаты',
+  advance_to_deposit: 'Перенос переплаты в залог',
+}
+
 export const taxRegimeLabels: Record<S['TaxRegime'], string> = {
   usn_income: 'УСН «доходы»',
   usn_income_expense: 'УСН «доходы минус расходы»',

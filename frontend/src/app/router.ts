@@ -19,10 +19,6 @@ declare module 'vue-router' {
   }
 }
 
-function owner(path: string, title: string, stage: string, section: string): RouteRecordRaw {
-  return { path, component: PlannedPage, meta: { title, stage, section, layout: 'owner', access: 'owner' } }
-}
-
 function page(path: string, title: string, section: string, component: RouteRecordRaw['component']): RouteRecordRaw {
   return { path, component, meta: { title, section, layout: 'owner', access: 'owner' } } as RouteRecordRaw
 }
@@ -65,7 +61,7 @@ export const routes: RouteRecordRaw[] = [
   },
 
   // Рабочее место собственника
-  owner('/', 'Сводка', 'M12', 'dashboard'),
+  page('/', 'Сводка', 'dashboard', () => import('@/modules/dashboard/pages/DashboardPage.vue')),
   page('/properties', 'Объекты', 'properties', () => import('@/modules/properties/pages/PropertiesListPage.vue')),
   page(
     '/properties/new',
@@ -129,8 +125,8 @@ export const routes: RouteRecordRaw[] = [
   page('/requests/:id', 'Заявка', 'requests', () => import('@/modules/requests/pages/RequestCardPage.vue')),
   page('/expenses', 'Затраты', 'expenses', () => import('@/modules/expenses/pages/ExpensesPage.vue')),
   page('/calendar', 'Календарь', 'calendar', () => import('@/modules/calendar/pages/CalendarPage.vue')),
-  owner('/reports', 'Отчёты', 'M12', 'reports'),
-  owner('/reports/:name', 'Отчёт', 'M12', 'reports'),
+  page('/reports', 'Отчёты', 'reports', () => import('@/modules/reports/pages/ReportsPage.vue')),
+  page('/reports/:name', 'Отчёт', 'reports', () => import('@/modules/reports/pages/ReportPage.vue')),
   page('/fiscal-receipts', 'Чеки', 'fiscal', () => import('@/modules/fiscal/pages/FiscalReceiptsPage.vue')),
   {
     path: '/audit',

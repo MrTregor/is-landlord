@@ -4956,6 +4956,8 @@ export interface components {
             advanceKop: components["schemas"]["Kop"];
             depositWithheldKop: components["schemas"]["Kop"];
             refundsKop: components["schemas"]["Kop"];
+            /** @description Переносы переплаты в залог — со знаком минус (05 разд. 12.1) */
+            toDepositKop: components["schemas"]["Kop"];
             /** @description Поступления, всего */
             incomeKop: components["schemas"]["Kop"];
         };
