@@ -13,6 +13,80 @@ import (
 	"landlord/backend/internal/platform/date"
 )
 
+const activeConsent = `-- name: ActiveConsent :one
+SELECT id, tenant_id, purpose, document_id, given_on, method, file_id, recorded_by, ip, revoked_on, revoke_note, created_at FROM pdn_consents WHERE tenant_id = $1 AND revoked_on IS NULL ORDER BY given_on DESC, created_at DESC LIMIT 1
+`
+
+// Действующее (не отозванное) согласие нанимателя на обработку ПДн.
+func (q *Queries) ActiveConsent(ctx context.Context, tenantID uuid.UUID) (PdnConsent, error) {
+	row := q.db.QueryRow(ctx, activeConsent, tenantID)
+	var i PdnConsent
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Purpose,
+		&i.DocumentID,
+		&i.GivenOn,
+		&i.Method,
+		&i.FileID,
+		&i.RecordedBy,
+		&i.Ip,
+		&i.RevokedOn,
+		&i.RevokeNote,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const cabinetDocuments = `-- name: CabinetDocuments :many
+SELECT id, kind, number, title, contract_id, tenant_id, payment_id, amendment_id, act_id, template_id, file_id, html_snapshot, data_snapshot, period_from, period_to, visible_to_tenant, signed_scan_file_id, superseded_by, created_by, created_at FROM documents
+WHERE contract_id = $1 AND visible_to_tenant AND superseded_by IS NULL
+  AND kind NOT IN ('payment_receipt', 'pdn_consent')
+ORDER BY created_at DESC, id DESC
+`
+
+// Документы договора, видимые нанимателю (15 разд. 7): договор, акты, допсоглашения, акты сверки — без заменённых.
+func (q *Queries) CabinetDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error) {
+	rows, err := q.db.Query(ctx, cabinetDocuments, contractID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Document{}
+	for rows.Next() {
+		var i Document
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Number,
+			&i.Title,
+			&i.ContractID,
+			&i.TenantID,
+			&i.PaymentID,
+			&i.AmendmentID,
+			&i.ActID,
+			&i.TemplateID,
+			&i.FileID,
+			&i.HtmlSnapshot,
+			&i.DataSnapshot,
+			&i.PeriodFrom,
+			&i.PeriodTo,
+			&i.VisibleToTenant,
+			&i.SignedScanFileID,
+			&i.SupersededBy,
+			&i.CreatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cabinetPayments = `-- name: CabinetPayments :many
 SELECT p.id, p.contract_id, p.purpose, p.amount_kop, p.received_on, p.method, p.source, p.status, p.requested_charge_ids, p.provider_payment_id, p.provider_status, p.payment_url, p.payment_url_expires_at, p.payer_name, p.payer_inn, p.payer_account, p.bank_purpose, p.bank_statement_line_id, p.receipt_number, p.comment, p.created_by, p.created_at, p.updated_at, p.cancelled_at, p.cancelled_by, p.cancel_reason, f.ofd_receipt_url, f.npd_receipt_url, f.status AS fiscal_status
 FROM payments p LEFT JOIN fiscal_receipts f ON f.payment_id = p.id

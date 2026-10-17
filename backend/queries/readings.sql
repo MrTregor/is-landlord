@@ -79,3 +79,17 @@ WHERE id = @id;
 -- name: MonthReadingExists :one
 SELECT EXISTS (SELECT 1 FROM meter_readings WHERE meter_id = @meter_id AND period_month = @period_month
                AND status <> 'rejected' AND source IN ('owner', 'tenant') AND id <> @exclude_id)::boolean;
+
+-- name: InsertTenantReading :one
+-- Показание нанимателя (15 разд. 5): на проверке или сразу принятое при readings_auto_accept.
+INSERT INTO meter_readings (meter_id, contract_id, period_month, reading_date, value, source, status, submitted_by,
+                            submitted_at, decided_at)
+VALUES (@meter_id, @contract_id, @period_month, @reading_date, @value, 'tenant', @status, sqlc.narg(user_id), @now,
+        sqlc.narg(decided_at))
+RETURNING id;
+
+-- name: ContractMonthReadings :many
+-- Месячные показания счётчиков по договору с месяца (кабинет: текущее и история за 12 месяцев), новые первыми.
+SELECT id, meter_id, period_month, value, status, reject_reason FROM meter_readings
+WHERE contract_id = @contract_id AND source IN ('owner', 'tenant') AND period_month >= @from_month
+ORDER BY period_month DESC, submitted_at DESC, id DESC;

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // Главная кабинета (15 Экраны нанимателя, раздел 2): «К оплате» с онлайн-оплатой и выбором начислений,
-// обеспечительный платёж, аванс. Карточки показаний и заявок появятся на этапах M11 и M13.
+// обеспечительный платёж, аванс, показания счётчиков, заявки, ссылка «Договор и документы».
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useCabinetSummary, useStartPayment } from '@/api/queries/cabinet'
+import { useCabinetMeters, useCabinetRequests, useCabinetSummary, useStartPayment } from '@/api/queries/cabinet'
 import MoneyText from '@/components/MoneyText.vue'
-import { formatDate } from '@/utils/date'
+import { formatDate, formatMonth } from '@/utils/date'
 import { formatKop } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
 
@@ -21,6 +21,17 @@ const contractOptions = computed(() =>
 function selectContract(id: string) {
   void router.replace({ query: { contract: id } })
 }
+const link = (path: string) => (contractId.value ? { path, query: { contract: contractId.value } } : { path })
+
+// Показания и заявки выбранного договора.
+const meters = useCabinetMeters(() => s.value?.contractId ?? undefined)
+const win = computed(() => meters.data.value?.window)
+const readingsDue = computed(
+  () => (meters.data.value?.meters ?? []).filter((m) => !m.current || m.current.status === 'rejected').length > 0,
+)
+const requests = useCabinetRequests(() => s.value?.contractId ?? undefined)
+const openRequests = computed(() => (requests.data.value ?? []).filter((r) => r.status !== 'closed').length)
+const live = computed(() => current.value?.status === 'active' || current.value?.status === 'extended')
 
 const start = useStartPayment()
 const payError = ref<string | null>(null)
@@ -135,8 +146,37 @@ const chosenTotal = computed(() =>
         <p>Переплата <MoneyText :kop="s.advanceKop" /> будет зачтена в следующие начисления.</p>
       </section>
 
-      <RouterLink to="/cabinet/charges" class="more">Начисления и платежи</RouterLink>
-      <RouterLink to="/cabinet/contract" class="more">Договор и документы</RouterLink>
+      <section v-if="win && meters.data.value?.meters.length" class="card">
+        <h2>Показания счётчиков</h2>
+        <template v-if="win.open && readingsDue">
+          <p>Передайте показания за {{ formatMonth(win.periodMonth) }} до {{ formatDate(win.to) }}</p>
+          <Button as="router-link" :to="link('/cabinet/meters')" label="Передать" icon="pi pi-gauge" class="wide" />
+        </template>
+        <template v-else-if="win.open">
+          <p>Показания за {{ formatMonth(win.periodMonth) }} переданы.</p>
+          <RouterLink :to="link('/cabinet/meters')">Посмотреть</RouterLink>
+        </template>
+        <p v-else>Следующий приём показаний с {{ formatDate(win.from) }}</p>
+      </section>
+
+      <section class="card">
+        <h2>Заявки</h2>
+        <p>
+          <RouterLink :to="link('/cabinet/requests')">Открытых заявок: {{ openRequests }}</RouterLink>
+        </p>
+        <Button
+          v-if="live"
+          as="router-link"
+          :to="link('/cabinet/requests/new')"
+          label="Сообщить о неисправности"
+          icon="pi pi-wrench"
+          outlined
+          class="wide"
+        />
+      </section>
+
+      <RouterLink :to="link('/cabinet/charges')" class="more">Начисления и платежи</RouterLink>
+      <RouterLink :to="link('/cabinet/contract')" class="more">Договор и документы</RouterLink>
 
       <Dialog
         v-model:visible="choose"

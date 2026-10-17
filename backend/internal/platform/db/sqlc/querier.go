@@ -24,6 +24,8 @@ type Querier interface {
 	ActivateUser(ctx context.Context, arg ActivateUserParams) (User, error)
 	// Активные распределения на начисление, последние первыми (отмена излишка — с последних по времени).
 	ActiveAllocations(ctx context.Context, chargeID uuid.UUID) ([]ActiveAllocationsRow, error)
+	// Действующее (не отозванное) согласие нанимателя на обработку ПДн.
+	ActiveConsent(ctx context.Context, tenantID uuid.UUID) (PdnConsent, error)
 	// Действующий договор объекта на дату (подставляется в новую заявку).
 	ActiveContractOfProperty(ctx context.Context, arg ActiveContractOfPropertyParams) (Contract, error)
 	ActiveOwnerUsers(ctx context.Context) ([]ActiveOwnerUsersRow, error)
@@ -39,6 +41,8 @@ type Querier interface {
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
 	BankLineRow(ctx context.Context, id uuid.UUID) (BankLineRowRow, error)
+	// Документы договора, видимые нанимателю (15 разд. 7): договор, акты, допсоглашения, акты сверки — без заменённых.
+	CabinetDocuments(ctx context.Context, contractID *uuid.UUID) ([]Document, error)
 	// Платежи договора, видимые нанимателю: проведённые и незавершённые онлайн (06 разд. 15).
 	CabinetPayments(ctx context.Context, contractID uuid.UUID) ([]CabinetPaymentsRow, error)
 	CancelAmendment(ctx context.Context, arg CancelAmendmentParams) (ContractAmendment, error)
@@ -71,6 +75,8 @@ type Querier interface {
 	// Плановые рассылки (07 Фоновые задачи, 8–10; 10 Уведомления, раздел 2)
 	// Адрес нанимателя и общие переменные письма по договору.
 	ContractMailInfo(ctx context.Context, id uuid.UUID) (ContractMailInfoRow, error)
+	// Месячные показания счётчиков по договору с месяца (кабинет: текущее и история за 12 месяцев), новые первыми.
+	ContractMonthReadings(ctx context.Context, arg ContractMonthReadingsParams) ([]ContractMonthReadingsRow, error)
 	// Месяцы, за которые у договоров есть начисления платы (чтобы не показывать прогноз для них).
 	ContractMonthsWithRent(ctx context.Context, ids []uuid.UUID) ([]ContractMonthsWithRentRow, error)
 	// Не черновой договор объекта, начинающийся в дату (чтобы не освобождать объект между договорами).
@@ -308,6 +314,8 @@ type Querier interface {
 	InsertResend(ctx context.Context, arg InsertResendParams) (EmailLog, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
+	// Показание нанимателя (15 разд. 5): на проверке или сразу принятое при readings_auto_accept.
+	InsertTenantReading(ctx context.Context, arg InsertTenantReadingParams) (uuid.UUID, error)
 	// Условия и проживающие
 	InsertTerms(ctx context.Context, arg InsertTermsParams) (ContractTerm, error)
 	InsertUnderpayment(ctx context.Context, arg InsertUnderpaymentParams) error
@@ -510,6 +518,8 @@ type Querier interface {
 	SetProviderStatus(ctx context.Context, arg SetProviderStatusParams) error
 	SetRequestStatus(ctx context.Context, arg SetRequestStatusParams) (MaintenanceRequest, error)
 	SetStatusHistoryValidTo(ctx context.Context, arg SetStatusHistoryValidToParams) error
+	// Телефон нанимателя из профиля кабинета (15 разд. 8).
+	SetTenantPhone(ctx context.Context, arg SetTenantPhoneParams) (Tenant, error)
 	SetUnderpayment(ctx context.Context, arg SetUnderpaymentParams) error
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
 	// Пересчёт хеша с новыми параметрами argon2id при входе.

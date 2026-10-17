@@ -1,7 +1,5 @@
 // Маршруты (13 Фронтенд, раздел 4). Раскладка страницы задаётся meta.layout, доступ — meta.access.
-// Экраны, которые делаются на следующих этапах, пока открывают заглушку PlannedPage с номером этапа.
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import PlannedPage from '@/components/PlannedPage.vue'
 import { installGuards } from './guards'
 
 export type Layout = 'auth' | 'owner' | 'cabinet' | 'blank'
@@ -12,8 +10,6 @@ declare module 'vue-router' {
     title?: string
     layout?: Layout
     access?: Access
-    /** Этап плана (19 План реализации), на котором появляется экран. */
-    stage?: string
     /** Раздел меню рабочего места, к которому относится страница. */
     section?: string
   }
@@ -25,10 +21,6 @@ function page(path: string, title: string, section: string, component: RouteReco
 
 function cabinetPage(path: string, title: string, component: RouteRecordRaw['component']): RouteRecordRaw {
   return { path, component, meta: { title, layout: 'cabinet', access: 'tenant' } } as RouteRecordRaw
-}
-
-function cabinet(path: string, title: string, stage: string): RouteRecordRaw {
-  return { path, component: PlannedPage, meta: { title, stage, layout: 'cabinet', access: 'tenant' } }
 }
 
 export const routes: RouteRecordRaw[] = [
@@ -164,12 +156,20 @@ export const routes: RouteRecordRaw[] = [
     'Результат оплаты',
     () => import('@/modules/cabinet/pages/PaymentResultPage.vue'),
   ),
-  cabinet('/cabinet/meters', 'Показания', 'M13'),
-  cabinet('/cabinet/requests', 'Заявки', 'M13'),
-  cabinet('/cabinet/requests/new', 'Новая заявка', 'M13'),
-  cabinet('/cabinet/requests/:id', 'Заявка', 'M13'),
-  cabinet('/cabinet/contract', 'Договор и документы', 'M13'),
-  cabinet('/cabinet/profile', 'Профиль', 'M13'),
+  cabinetPage('/cabinet/meters', 'Показания', () => import('@/modules/cabinet/pages/CabinetMetersPage.vue')),
+  cabinetPage('/cabinet/requests', 'Заявки', () => import('@/modules/cabinet/pages/CabinetRequestsPage.vue')),
+  cabinetPage(
+    '/cabinet/requests/new',
+    'Новая заявка',
+    () => import('@/modules/cabinet/pages/CabinetRequestNewPage.vue'),
+  ),
+  cabinetPage('/cabinet/requests/:id', 'Заявка', () => import('@/modules/cabinet/pages/CabinetRequestPage.vue')),
+  cabinetPage(
+    '/cabinet/contract',
+    'Договор и документы',
+    () => import('@/modules/cabinet/pages/CabinetContractPage.vue'),
+  ),
+  cabinetPage('/cabinet/profile', 'Профиль', () => import('@/modules/cabinet/pages/CabinetProfilePage.vue')),
 
   {
     path: '/:pathMatch(.*)*',

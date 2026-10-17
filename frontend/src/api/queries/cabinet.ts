@@ -62,3 +62,105 @@ export const fetchCabinetSummary = (contractId: string) =>
 
 /** Квитанция в кабинете. */
 export const cabinetReceiptUrl = (id: string) => `/api/v1/cabinet/payments/${id}/receipt.pdf`
+
+// ---------------------------------------------------------------- M13: показания, заявки, договор, профиль
+
+export type CabinetMeters = S['CabinetMeters']
+export type CabinetMeter = S['CabinetMeter']
+export type CabinetContract = S['CabinetContract']
+export type CabinetProfile = S['CabinetProfile']
+export type CabinetRequestItem = S['CabinetRequestListItem']
+export type CabinetRequestDetail = S['CabinetRequestDetail']
+
+export function useCabinetMeters(contractId: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: ['cabinet', 'meters', contractId],
+    queryFn: () => unwrap(api.GET('/cabinet/meters', { params: { query: { contractId: toValue(contractId)! } } })),
+    enabled: () => !!toValue(contractId),
+  })
+}
+
+/** Передать показания по всем счётчикам объекта (15 разд. 5). */
+export function useSubmitReadings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: S['CabinetReadingsInput']) => unwrap(api.POST('/cabinet/meter-readings', { body })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cabinet'] }),
+  })
+}
+
+export function useCabinetContract(id: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: ['cabinet', 'contract', id],
+    queryFn: () => unwrap(api.GET('/cabinet/contracts/{id}', { params: { path: { id: toValue(id)! } } })),
+    enabled: () => !!toValue(id),
+  })
+}
+
+export function useCabinetRequests(contractId: MaybeRefOrGetter<string | undefined>) {
+  return useQuery({
+    queryKey: ['cabinet', 'requests', contractId],
+    queryFn: () => unwrap(api.GET('/cabinet/requests', { params: { query: { contractId: toValue(contractId)! } } })),
+    enabled: () => !!toValue(contractId),
+  })
+}
+
+export function useCabinetRequest(id: MaybeRefOrGetter<string>) {
+  return useQuery({
+    queryKey: ['cabinet', 'request', id],
+    queryFn: () => unwrap(api.GET('/cabinet/requests/{id}', { params: { path: { id: toValue(id) } } })),
+    enabled: () => !!toValue(id),
+  })
+}
+
+export function useCabinetRequestMutations() {
+  const qc = useQueryClient()
+  const done = () => qc.invalidateQueries({ queryKey: ['cabinet'] })
+  const byId = (id: string) => ({ params: { path: { id } } })
+  return {
+    create: useMutation({
+      mutationFn: (body: S['CabinetRequestInput']) => unwrap(api.POST('/cabinet/requests', { body })),
+      onSuccess: done,
+    }),
+    comment: useMutation({
+      mutationFn: (v: { id: string; text: string }) =>
+        unwrap(api.POST('/cabinet/requests/{id}/comments', { ...byId(v.id), body: { text: v.text } })),
+      onSuccess: done,
+    }),
+    confirm: useMutation({
+      mutationFn: (id: string) => unwrap(api.POST('/cabinet/requests/{id}/confirm', byId(id))),
+      onSuccess: done,
+    }),
+    reopen: useMutation({
+      mutationFn: (v: { id: string; comment: string }) =>
+        unwrap(api.POST('/cabinet/requests/{id}/reopen', { ...byId(v.id), body: { comment: v.comment } })),
+      onSuccess: done,
+    }),
+  }
+}
+
+export function useCabinetProfile() {
+  return useQuery({
+    queryKey: ['cabinet', 'profile'],
+    queryFn: () => unwrap(api.GET('/cabinet/profile')),
+  })
+}
+
+export function useCabinetProfileMutations() {
+  const qc = useQueryClient()
+  const done = () => qc.invalidateQueries({ queryKey: ['cabinet', 'profile'] })
+  return {
+    phone: useMutation({
+      mutationFn: (phone: string | null) => unwrap(api.PATCH('/cabinet/profile', { body: { phone } })),
+      onSuccess: done,
+    }),
+    consent: useMutation({
+      mutationFn: () => unwrap(api.POST('/cabinet/consent', { body: { agree: true } })),
+      onSuccess: done,
+    }),
+    revoke: useMutation({
+      mutationFn: () => unwrap(api.POST('/cabinet/consent/revoke')),
+      onSuccess: done,
+    }),
+  }
+}

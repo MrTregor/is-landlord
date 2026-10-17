@@ -6270,7 +6270,8 @@ components:
         email: { type: string }
     CabinetProfile:
       type: object
-      required: [displayName, email, phone, policyAcceptedVersion, policyAcceptedAt, consentPurpose, consent, organization]
+      required: [displayName, email, phone, policyAcceptedVersion, policyAcceptedAt, consentPurpose, consentAvailable, consent,
+                 organization]
       properties:
         displayName: { type: string }
         email: { type: string }
@@ -6278,6 +6279,9 @@ components:
         policyAcceptedVersion: { type: [string, "null"] }
         policyAcceptedAt: { type: [string, "null"], format: date-time }
         consentPurpose: { type: string }
+        consentAvailable:
+          type: boolean
+          description: Отдельное согласие на обработку ПДн даёт только наниматель-физлицо (12 разд. 2)
         consent:
           oneOf:
             - { $ref: "#/components/schemas/CabinetConsent" }

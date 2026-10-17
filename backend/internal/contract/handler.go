@@ -73,7 +73,8 @@ func occupants(list []api.OccupantInput) []Occupant {
 	return out
 }
 
-func termsDTO(t sqlc.ContractTerm) api.ContractTermsDTO {
+// TermsDTO — версия условий договора для API.
+func TermsDTO(t sqlc.ContractTerm) api.ContractTermsDTO {
 	return api.ContractTermsDTO{
 		Version: int(t.Version), EffectiveFrom: apiconv.FromDate(t.EffectiveFrom), RentKop: t.RentKop,
 		UtilitiesFixedKop: t.UtilitiesFixedKop, PaymentDay: int(t.PaymentDay), AmendmentId: t.AmendmentID,
@@ -105,7 +106,7 @@ func (h *Handler) detailDTO(ctx context.Context, c sqlc.Contract) (api.ContractD
 			Id: t.ID, Kind: api.TenantKind(t.Kind), DisplayName: names.Display(t.Kind, t.LastName, t.FirstName, t.MiddleName, t.OrgName),
 			Email: t.Email, Phone: t.Phone,
 		},
-		CurrentTerms: termsDTO(h.svc.CurrentTerms(c, d.Terms)), TermsHistory: make([]api.ContractTermsDTO, 0, len(d.Terms)),
+		CurrentTerms: TermsDTO(h.svc.CurrentTerms(c, d.Terms)), TermsHistory: make([]api.ContractTermsDTO, 0, len(d.Terms)),
 		Occupants: make([]api.OccupantDTO, 0, len(d.Occupants)), Warnings: d.Warnings, ActivationBlockers: d.Blockers.All(),
 		Balances: api.ContractBalances{
 			DebtKop: d.Balances.DebtKop, OverdueKop: d.Balances.OverdueKop, PenaltiesAccruingKop: d.Balances.PenaltiesAccruingKop,
@@ -117,7 +118,7 @@ func (h *Handler) detailDTO(ctx context.Context, c sqlc.Contract) (api.ContractD
 		dto.TerminationInitiator = apiconv.Ptr(api.TerminationInitiator(*c.TerminationInitiator))
 	}
 	for _, tr := range d.Terms {
-		dto.TermsHistory = append(dto.TermsHistory, termsDTO(tr))
+		dto.TermsHistory = append(dto.TermsHistory, TermsDTO(tr))
 	}
 	for _, o := range d.Occupants {
 		dto.Occupants = append(dto.Occupants, api.OccupantDTO{Id: o.ID, FullName: o.FullName, BirthDate: apiconv.FromDatePtr(o.BirthDate), Relation: o.Relation})
@@ -328,7 +329,8 @@ func (h *Handler) GetContractTimeline(ctx context.Context, req api.GetContractTi
 
 // ---------------------------------------------------------------- допсоглашения
 
-func amendmentDTO(a sqlc.ContractAmendment) api.AmendmentDTO {
+// AmendmentDTO — допсоглашение для API.
+func AmendmentDTO(a sqlc.ContractAmendment) api.AmendmentDTO {
 	d := api.AmendmentDTO{
 		Id: a.ID, ContractId: a.ContractID, Number: int(a.Number), Kind: api.AmendmentKind(a.Kind), Status: api.AmendmentStatus(a.Status),
 		EffectiveFrom: apiconv.FromDate(a.EffectiveFrom), NewRentKop: a.NewRentKop, NewUtilitiesFixedKop: a.NewUtilitiesFixedKop,
@@ -365,7 +367,7 @@ func (h *Handler) ListAmendments(ctx context.Context, req api.ListAmendmentsRequ
 	}
 	out := make(api.ListAmendments200JSONResponse, 0, len(rows))
 	for _, a := range rows {
-		d := amendmentDTO(a)
+		d := AmendmentDTO(a)
 		if id, ok := docs[a.ID]; ok {
 			d.DocumentId = &id
 		}
@@ -380,7 +382,7 @@ func (h *Handler) CreateAmendment(ctx context.Context, req api.CreateAmendmentRe
 	if err != nil {
 		return nil, err
 	}
-	return api.CreateAmendment201JSONResponse(amendmentDTO(a)), nil
+	return api.CreateAmendment201JSONResponse(AmendmentDTO(a)), nil
 }
 
 // UpdateAmendment — PUT /amendments/{id}.
@@ -389,7 +391,7 @@ func (h *Handler) UpdateAmendment(ctx context.Context, req api.UpdateAmendmentRe
 	if err != nil {
 		return nil, err
 	}
-	return api.UpdateAmendment200JSONResponse(amendmentDTO(a)), nil
+	return api.UpdateAmendment200JSONResponse(AmendmentDTO(a)), nil
 }
 
 // SignAmendment — POST /amendments/{id}/sign.
@@ -398,7 +400,7 @@ func (h *Handler) SignAmendment(ctx context.Context, req api.SignAmendmentReques
 	if err != nil {
 		return nil, err
 	}
-	return api.SignAmendment200JSONResponse(amendmentDTO(a)), nil
+	return api.SignAmendment200JSONResponse(AmendmentDTO(a)), nil
 }
 
 // CancelAmendment — POST /amendments/{id}/cancel.
@@ -407,7 +409,7 @@ func (h *Handler) CancelAmendment(ctx context.Context, req api.CancelAmendmentRe
 	if err != nil {
 		return nil, err
 	}
-	return api.CancelAmendment200JSONResponse(amendmentDTO(a)), nil
+	return api.CancelAmendment200JSONResponse(AmendmentDTO(a)), nil
 }
 
 // ---------------------------------------------------------------- акты

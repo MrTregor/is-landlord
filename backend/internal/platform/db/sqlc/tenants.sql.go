@@ -561,6 +561,50 @@ func (q *Queries) RevokeConsent(ctx context.Context, arg RevokeConsentParams) (P
 	return i, err
 }
 
+const setTenantPhone = `-- name: SetTenantPhone :one
+UPDATE tenants SET phone = $1 WHERE id = $2 RETURNING id, kind, last_name, first_name, middle_name, birth_date, doc_type, doc_number_enc, doc_issued_by_enc, doc_issued_on, doc_division_code_enc, registration_address_enc, org_name, inn, kpp, ogrn, legal_address, signatory_name, signatory_position, signatory_basis, phone, email, note, anonymized_at, created_at, updated_at
+`
+
+type SetTenantPhoneParams struct {
+	Phone *string
+	ID    uuid.UUID
+}
+
+// Телефон нанимателя из профиля кабинета (15 разд. 8).
+func (q *Queries) SetTenantPhone(ctx context.Context, arg SetTenantPhoneParams) (Tenant, error) {
+	row := q.db.QueryRow(ctx, setTenantPhone, arg.Phone, arg.ID)
+	var i Tenant
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.LastName,
+		&i.FirstName,
+		&i.MiddleName,
+		&i.BirthDate,
+		&i.DocType,
+		&i.DocNumberEnc,
+		&i.DocIssuedByEnc,
+		&i.DocIssuedOn,
+		&i.DocDivisionCodeEnc,
+		&i.RegistrationAddressEnc,
+		&i.OrgName,
+		&i.Inn,
+		&i.Kpp,
+		&i.Ogrn,
+		&i.LegalAddress,
+		&i.SignatoryName,
+		&i.SignatoryPosition,
+		&i.SignatoryBasis,
+		&i.Phone,
+		&i.Email,
+		&i.Note,
+		&i.AnonymizedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateTenant = `-- name: UpdateTenant :one
 UPDATE tenants SET last_name = $1, first_name = $2, middle_name = $3,
   birth_date = $4, doc_type = $5, doc_number_enc = $6,

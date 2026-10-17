@@ -116,9 +116,9 @@ func (s *Service) Readings(ctx context.Context, f ReadingFilter) ([]ReadingView,
 }
 
 // checkValue — проверки показания (05 разд. 6.2): формат и не меньше предыдущего принятого.
-func checkValue(ctx context.Context, q *sqlc.Queries, m sqlc.Meter, value decimal.Decimal, on date.Date, exclude uuid.UUID) error {
+func checkValue(ctx context.Context, q *sqlc.Queries, m sqlc.Meter, value decimal.Decimal, on date.Date, exclude uuid.UUID, field string) error {
 	if value.IsNegative() || value.GreaterThanOrEqual(readingMax) || !value.Equal(value.Round(3)) {
-		return apperr.Validation(apperr.FieldError{Field: "value", Message: "Показание — не больше 6 знаков до запятой и 3 после"})
+		return apperr.Validation(apperr.FieldError{Field: field, Message: "Показание — не больше 6 знаков до запятой и 3 после"})
 	}
 	prev, err := q.PrevAccepted(ctx, sqlc.PrevAcceptedParams{MeterID: m.ID, BeforeDate: on.AddDays(1), ExcludeID: exclude})
 	pv, pd := m.InitialValue, m.InitialDate
@@ -129,7 +129,7 @@ func checkValue(ctx context.Context, q *sqlc.Queries, m sqlc.Meter, value decima
 		return err
 	}
 	if value.LessThan(pv) {
-		return apperr.Validation(apperr.FieldError{Field: "value", Message: fmt.Sprintf("Показание меньше предыдущего (%s от %s)", comma(pv), pd.Format())})
+		return apperr.Validation(apperr.FieldError{Field: field, Message: fmt.Sprintf("Показание меньше предыдущего (%s от %s)", comma(pv), pd.Format())})
 	}
 	return nil
 }
@@ -184,7 +184,7 @@ func (s *Service) CreateReading(ctx context.Context, in ReadingInput) (Decision,
 		if exists {
 			return apperr.Conflict(apperr.CodeConflictExists, "Показание за "+calc.MonthName(in.PeriodMonth)+" уже внесено")
 		}
-		if err := checkValue(ctx, tx.Q, m, in.Value, in.ReadingDate, uuid.Nil); err != nil {
+		if err := checkValue(ctx, tx.Q, m, in.Value, in.ReadingDate, uuid.Nil, "value"); err != nil {
 			return err
 		}
 		var contractID *uuid.UUID
@@ -235,7 +235,7 @@ func (s *Service) AcceptReading(ctx context.Context, id uuid.UUID) (Decision, er
 		if err != nil {
 			return err
 		}
-		if err := checkValue(ctx, tx.Q, m, r.Value, r.ReadingDate, r.ID); err != nil {
+		if err := checkValue(ctx, tx.Q, m, r.Value, r.ReadingDate, r.ID, "value"); err != nil {
 			return err
 		}
 		if err := tx.Q.AcceptReading(ctx, sqlc.AcceptReadingParams{ID: id, DecidedBy: actorID(ctx), Now: ptr(s.clock.Now())}); err != nil {

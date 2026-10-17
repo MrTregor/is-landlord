@@ -81,3 +81,7 @@ SELECT * FROM pdn_consents WHERE id = $1 AND tenant_id = $2;
 UPDATE pdn_consents SET revoked_on = $3, revoke_note = sqlc.narg(revoke_note)
 WHERE id = $1 AND tenant_id = $2
 RETURNING *;
+
+-- name: SetTenantPhone :one
+-- Телефон нанимателя из профиля кабинета (15 разд. 8).
+UPDATE tenants SET phone = sqlc.narg(phone) WHERE id = @id RETURNING *;

@@ -85,6 +85,7 @@ var actionTitles = map[string]string{
 	"discrepancy.resolve":   "Разбор расхождения",
 	"reading.accept":        "Принятие показания",
 	"reading.reject":        "Отклонение показания",
+	"reading.submit":        "Передача показаний нанимателем",
 	"request.transition":    "Смена статуса заявки",
 	"request.update":        "Изменение заявки",
 	"request.comment":       "Комментарий к заявке",

@@ -5491,6 +5491,8 @@ export interface components {
             /** Format: date-time */
             policyAcceptedAt: string | null;
             consentPurpose: string;
+            /** @description Отдельное согласие на обработку ПДн даёт только наниматель-физлицо (12 разд. 2) */
+            consentAvailable: boolean;
             consent: components["schemas"]["CabinetConsent"] | null;
             organization: components["schemas"]["OrganizationContacts"];
         };

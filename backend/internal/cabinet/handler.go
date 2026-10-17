@@ -1,5 +1,6 @@
 // Package cabinet — личный кабинет нанимателя (FR-13, docs/spec/06 API.md, раздел 15): сводка «К оплате», начисления,
-// платежи, онлайн-оплата и квитанции. Наниматель видит только свои договоры; чужой ресурс — 404.
+// платежи, онлайн-оплата и квитанции, договор и документы, показания, профиль и согласие. Наниматель видит только
+// свои договоры; чужой ресурс — 404.
 package cabinet
 
 import (
@@ -13,8 +14,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	"landlord/backend/internal/api"
+	"landlord/backend/internal/contract"
 	"landlord/backend/internal/document"
 	"landlord/backend/internal/fiscal"
+	"landlord/backend/internal/meter"
 	"landlord/backend/internal/payment"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/apperr"
@@ -23,6 +26,8 @@ import (
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
 	"landlord/backend/internal/platform/reqctx"
+	"landlord/backend/internal/settings"
+	"landlord/backend/internal/tenant"
 )
 
 // Handler — методы кабинета.
@@ -31,11 +36,26 @@ type Handler struct {
 	clock     clock.Clock
 	payments  *payment.Service
 	documents *document.Service
+	contracts *contract.Service
+	meters    *meter.Service
+	tenants   *tenant.Service
+	settings  *settings.Service
+}
+
+// Deps — сервисы, которыми пользуется кабинет.
+type Deps struct {
+	Payments  *payment.Service
+	Documents *document.Service
+	Contracts *contract.Service
+	Meters    *meter.Service
+	Tenants   *tenant.Service
+	Settings  *settings.Service
 }
 
 // NewHandler создаёт обработчик.
-func NewHandler(database *db.DB, clk clock.Clock, ps *payment.Service, docs *document.Service) *Handler {
-	return &Handler{db: database, clock: clk, payments: ps, documents: docs}
+func NewHandler(database *db.DB, clk clock.Clock, d Deps) *Handler {
+	return &Handler{db: database, clock: clk, payments: d.Payments, documents: d.Documents, contracts: d.Contracts,
+		meters: d.Meters, tenants: d.Tenants, settings: d.Settings}
 }
 
 func tenantID(ctx context.Context) (uuid.UUID, error) {

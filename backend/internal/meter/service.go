@@ -18,6 +18,7 @@ import (
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
 	"landlord/backend/internal/platform/reqctx"
+	"landlord/backend/internal/settings"
 )
 
 // TypeTitles — виды ресурсов (04 Модель данных, справочник).
@@ -33,16 +34,19 @@ var TypeTitles = map[string]string{
 
 // Service — счётчики и тарифы.
 type Service struct {
-	db      *db.DB
-	audit   *audit.Service
-	clock   clock.Clock
-	billing *billing.Service
-	notify  *notify.Service
+	db       *db.DB
+	audit    *audit.Service
+	clock    clock.Clock
+	billing  *billing.Service
+	notify   *notify.Service
+	settings *settings.Service
 }
 
 // NewService создаёт сервис.
-func NewService(database *db.DB, au *audit.Service, clk clock.Clock, bl *billing.Service, nt *notify.Service) *Service {
-	return &Service{db: database, audit: au, clock: clk, billing: bl, notify: nt}
+func NewService(database *db.DB, au *audit.Service, clk clock.Clock, bl *billing.Service, nt *notify.Service,
+	st *settings.Service,
+) *Service {
+	return &Service{db: database, audit: au, clock: clk, billing: bl, notify: nt, settings: st}
 }
 
 // Input — поля счётчика.

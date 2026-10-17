@@ -120,6 +120,54 @@ func (q *Queries) ContractForPropertyMonth(ctx context.Context, arg ContractForP
 	return i, err
 }
 
+const contractMonthReadings = `-- name: ContractMonthReadings :many
+SELECT id, meter_id, period_month, value, status, reject_reason FROM meter_readings
+WHERE contract_id = $1 AND source IN ('owner', 'tenant') AND period_month >= $2
+ORDER BY period_month DESC, submitted_at DESC, id DESC
+`
+
+type ContractMonthReadingsParams struct {
+	ContractID *uuid.UUID
+	FromMonth  date.Date
+}
+
+type ContractMonthReadingsRow struct {
+	ID           uuid.UUID
+	MeterID      uuid.UUID
+	PeriodMonth  date.Date
+	Value        decimal.Decimal
+	Status       string
+	RejectReason *string
+}
+
+// Месячные показания счётчиков по договору с месяца (кабинет: текущее и история за 12 месяцев), новые первыми.
+func (q *Queries) ContractMonthReadings(ctx context.Context, arg ContractMonthReadingsParams) ([]ContractMonthReadingsRow, error) {
+	rows, err := q.db.Query(ctx, contractMonthReadings, arg.ContractID, arg.FromMonth)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContractMonthReadingsRow{}
+	for rows.Next() {
+		var i ContractMonthReadingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MeterID,
+			&i.PeriodMonth,
+			&i.Value,
+			&i.Status,
+			&i.RejectReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countReadings = `-- name: CountReadings :one
 SELECT count(*) FROM meter_readings r JOIN meters m ON m.id = r.meter_id
 WHERE NOT (r.act_id IS NOT NULL AND r.status = 'submitted')
@@ -256,6 +304,44 @@ func (q *Queries) InsertOwnerReading(ctx context.Context, arg InsertOwnerReading
 		arg.Value,
 		arg.UserID,
 		arg.Now,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertTenantReading = `-- name: InsertTenantReading :one
+INSERT INTO meter_readings (meter_id, contract_id, period_month, reading_date, value, source, status, submitted_by,
+                            submitted_at, decided_at)
+VALUES ($1, $2, $3, $4, $5, 'tenant', $6, $7, $8,
+        $9)
+RETURNING id
+`
+
+type InsertTenantReadingParams struct {
+	MeterID     uuid.UUID
+	ContractID  *uuid.UUID
+	PeriodMonth date.Date
+	ReadingDate date.Date
+	Value       decimal.Decimal
+	Status      string
+	UserID      *uuid.UUID
+	Now         time.Time
+	DecidedAt   *time.Time
+}
+
+// Показание нанимателя (15 разд. 5): на проверке или сразу принятое при readings_auto_accept.
+func (q *Queries) InsertTenantReading(ctx context.Context, arg InsertTenantReadingParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertTenantReading,
+		arg.MeterID,
+		arg.ContractID,
+		arg.PeriodMonth,
+		arg.ReadingDate,
+		arg.Value,
+		arg.Status,
+		arg.UserID,
+		arg.Now,
+		arg.DecidedAt,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)

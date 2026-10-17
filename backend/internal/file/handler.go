@@ -124,6 +124,9 @@ func (r Response) VisitGetCabinetPaymentReceiptPdfResponse(w http.ResponseWriter
 // VisitGetPaymentReceiptPdfResponse реализует ответ GET /payments/{id}/receipt.pdf.
 func (r Response) VisitGetPaymentReceiptPdfResponse(w http.ResponseWriter) error { return r.write(w) }
 
+// VisitGetCabinetDocumentPdfResponse реализует ответ GET /cabinet/documents/{id}/pdf.
+func (r Response) VisitGetCabinetDocumentPdfResponse(w http.ResponseWriter) error { return r.write(w) }
+
 // DTO — файл для API.
 func DTO(f sqlc.File) api.FileDTO {
 	return api.FileDTO{Id: f.ID, Name: f.OriginalName, ContentType: f.ContentType, SizeBytes: f.SizeBytes, Url: URL(f.ID)}
