@@ -15,10 +15,12 @@ import (
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
 	"landlord/backend/internal/document"
+	"landlord/backend/internal/expense"
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/fiscal"
 	httpserver "landlord/backend/internal/http"
 	"landlord/backend/internal/jobrun"
+	"landlord/backend/internal/maintenance"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/notify/mailing"
@@ -62,6 +64,8 @@ type App struct {
 	Fiscal    *fiscal.Service
 	Reconcile *reconciliation.Service
 	Mailing   *mailing.Service
+	Requests  *maintenance.Service
+	Expenses  *expense.Service
 }
 
 // Options — необязательные параметры (тесты).
@@ -117,6 +121,8 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log,
 	}, a.Fiscal)
 	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments, a.Notify)
+	a.Requests = maintenance.NewService(database, a.Audit, clk, a.Notify)
+	a.Expenses = expense.NewService(database, a.Audit, clk, a.Billing, a.Payments)
 	a.Mailing = mailing.NewService(database, a.Audit, clk, a.Notify, a.Settings, a.Calendar)
 	return a, nil
 }
@@ -145,6 +151,8 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 			Fiscal:    fiscal.NewHandler(a.Fiscal),
 			Reconcile: reconciliation.NewHandler(a.Reconcile),
 			Mailing:   mailing.NewHandler(a.Mailing),
+			Requests:  maintenance.NewHandler(a.Requests),
+			Expenses:  expense.NewHandler(a.Expenses),
 		},
 	})
 }

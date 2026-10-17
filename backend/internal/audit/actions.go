@@ -86,6 +86,8 @@ var actionTitles = map[string]string{
 	"reading.accept":        "Принятие показания",
 	"reading.reject":        "Отклонение показания",
 	"request.transition":    "Смена статуса заявки",
+	"request.update":        "Изменение заявки",
+	"request.comment":       "Комментарий к заявке",
 	"expense.create":        "Добавление затраты",
 	"expense.update":        "Изменение затраты",
 	"expense.delete":        "Удаление затраты",

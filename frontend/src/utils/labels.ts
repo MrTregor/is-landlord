@@ -184,6 +184,19 @@ export const requestCategoryLabels: Record<S['RequestCategory'], string> = {
   other: 'Другое',
 }
 
+export const requestPriorityLabels: Record<S['RequestPriority'], string> = {
+  low: 'Низкий',
+  normal: 'Обычный',
+  high: 'Высокий',
+}
+
+/** Возмещение затраты за счёт нанимателя (14 Экраны собственника, раздел 10). */
+export const expenseRecoveryLabels: Record<S['ExpenseRecovery'], string> = {
+  none: 'Нет',
+  deposit: 'Из залога',
+  charge: 'Начисление',
+}
+
 export const expenseCategoryLabels: Record<S['ExpenseCategory'], string> = {
   repair: 'Ремонт',
   maintenance: 'Содержание',

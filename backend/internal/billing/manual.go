@@ -48,6 +48,17 @@ type ManualInput struct {
 
 // CreateManual — ручное начисление (14 разд. 5).
 func (s *Service) CreateManual(ctx context.Context, in ManualInput) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.db.WithTx(ctx, func(tx *db.Tx) error {
+		var err error
+		id, err = s.CreateManualTx(ctx, tx, in)
+		return err
+	})
+	return id, err
+}
+
+// CreateManualTx — ручное начисление в транзакции вызывающего (возмещение затраты начислением, 05 разд. 14.2).
+func (s *Service) CreateManualTx(ctx context.Context, tx *db.Tx, in ManualInput) (uuid.UUID, error) {
 	reason, err := needReason(in.Reason)
 	if err != nil {
 		return uuid.Nil, err
@@ -67,7 +78,7 @@ func (s *Service) CreateManual(ctx context.Context, in ManualInput) (uuid.UUID, 
 		return uuid.Nil, apperr.Validation(errs...)
 	}
 	var id uuid.UUID
-	err = s.db.WithTx(ctx, func(tx *db.Tx) error {
+	err = func() error {
 		c, err := lockContract(ctx, tx, in.ContractID)
 		if err != nil {
 			return apperr.Validation(apperr.FieldError{Field: "contractId", Message: "Договор не найден"})
@@ -90,7 +101,7 @@ func (s *Service) CreateManual(ctx context.Context, in ManualInput) (uuid.UUID, 
 			Summary: fmt.Sprintf("Договор № %s: ручное начисление «%s» на %s", c.Number, in.Title, money.Kop(in.AmountKop).Format()),
 			After:   map[string]any{"kind": in.Kind, "title": in.Title, "amountKop": in.AmountKop, "dueDate": in.DueDate.String(), "reason": reason},
 		})
-	})
+	}()
 	return id, err
 }
 

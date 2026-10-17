@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -12,6 +13,7 @@ import (
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/platform/apiconv"
 	"landlord/backend/internal/platform/apperr"
+	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/db/sqlc"
 )
 
@@ -130,6 +132,17 @@ func (h *Handler) detail(ctx context.Context, p sqlc.Property) (api.PropertyDeta
 	if err != nil {
 		return api.PropertyDetail{}, err
 	}
+	// Расходы с начала года и открытые заявки (этап M11); поступления и заполняемость — этап M12.
+	openRequests, err := q.OpenRequestsOfProperty(ctx, p.ID)
+	if err != nil {
+		return api.PropertyDetail{}, err
+	}
+	expensesYtd, err := q.ExpensesOfProperty(ctx, sqlc.ExpensesOfPropertyParams{
+		PropertyID: p.ID, Since: date.New(h.svc.clock.Today().Year(), time.January, 1),
+	})
+	if err != nil {
+		return api.PropertyDetail{}, err
+	}
 	ph := make([]api.PropertyPhoto, 0, len(photos))
 	for _, f := range photos {
 		ph = append(ph, api.PropertyPhoto{FileId: f.FileID, Url: file.URL(f.FileID), Caption: f.Caption})
@@ -140,8 +153,7 @@ func (h *Handler) detail(ctx context.Context, p sqlc.Property) (api.PropertyDeta
 		Furnished: p.Furnished, Description: p.Description, ExpectedRentKop: p.ExpectedRentKop,
 		FiscalMode: api.FiscalMode(p.FiscalMode), Status: api.PropertyStatus(p.Status),
 		StatusSince: apiconv.FromDate(since), ArchivedAt: p.ArchivedAt, Photos: ph, CurrentContract: contractRef(current, p.ID),
-		// Показатели с начала года считаются по платежам, затратам и заявкам (этапы M6, M11, M12).
-		Stats: api.PropertyStats{},
+		Stats: api.PropertyStats{ExpensesYtdKop: expensesYtd, OpenRequests: int(openRequests)},
 	}, nil
 }
 

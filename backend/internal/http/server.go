@@ -19,9 +19,11 @@ import (
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
 	"landlord/backend/internal/document"
+	"landlord/backend/internal/expense"
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/fiscal"
 	"landlord/backend/internal/jobrun"
+	"landlord/backend/internal/maintenance"
 	"landlord/backend/internal/meter"
 	"landlord/backend/internal/notify/mailing"
 	"landlord/backend/internal/payment"
@@ -82,6 +84,8 @@ type Modules struct {
 	Fiscal    *fiscal.Handler
 	Reconcile *reconciliation.Handler
 	Mailing   *mailing.Handler
+	Requests  *maintenance.Handler
+	Expenses  *expense.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
@@ -108,6 +112,8 @@ type (
 	fiscalHandler    = fiscal.Handler
 	reconcileHandler = reconciliation.Handler
 	mailingHandler   = mailing.Handler
+	requestsHandler  = maintenance.Handler
+	expensesHandler  = expense.Handler
 )
 
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
@@ -131,6 +137,8 @@ type Server struct {
 	*fiscalHandler
 	*reconcileHandler
 	*mailingHandler
+	*requestsHandler
+	*expensesHandler
 
 	deps     Deps
 	dbPinger Pinger
@@ -148,7 +156,7 @@ func NewServer(deps Deps) *Server {
 		fileHandler: m.Files, propertyHandler: m.Property, meterHandler: m.Meters, tenantHandler: m.Tenants,
 		contractHandler: m.Contract, calendarHandler: m.Calendar, documentHandler: m.Document, billingHandler: m.Billing,
 		paymentHandler: m.Payments, cabinetHandler: m.Cabinet, jobsHandler: m.Jobs,
-		fiscalHandler: m.Fiscal, reconcileHandler: m.Reconcile, mailingHandler: m.Mailing,
+		fiscalHandler: m.Fiscal, reconcileHandler: m.Reconcile, mailingHandler: m.Mailing, requestsHandler: m.Requests, expensesHandler: m.Expenses,
 		deps: deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {

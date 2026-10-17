@@ -108,6 +108,17 @@ func (s *Service) lockDeposit(ctx context.Context, tx *db.Tx, contractID uuid.UU
 func (s *Service) Withhold(ctx context.Context, contractID uuid.UUID, in OpInput) (sqlc.DepositTransaction, error) {
 	var op sqlc.DepositTransaction
 	err := s.db.WithTx(ctx, func(tx *db.Tx) error {
+		var err error
+		op, err = s.WithholdTx(ctx, tx, contractID, in)
+		return err
+	})
+	return op, err
+}
+
+// WithholdTx — удержание из залога в транзакции вызывающего (возмещение затраты за счёт нанимателя, 05 разд. 14.2).
+func (s *Service) WithholdTx(ctx context.Context, tx *db.Tx, contractID uuid.UUID, in OpInput) (sqlc.DepositTransaction, error) {
+	var op sqlc.DepositTransaction
+	err := func() error {
 		c, balance, reason, err := s.lockDeposit(ctx, tx, contractID, in)
 		if err != nil {
 			return err
@@ -142,7 +153,7 @@ func (s *Service) Withhold(ctx context.Context, contractID uuid.UUID, in OpInput
 			Code: "deposit_withheld", To: to, Vars: vars, DedupeKey: "deposit_withheld:" + op.ID.String(),
 			RelatedType: "contract", RelatedID: &c.ID,
 		})
-	})
+	}()
 	return op, err
 }
 

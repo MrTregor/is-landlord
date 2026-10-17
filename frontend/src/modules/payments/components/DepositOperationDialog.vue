@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // Операции с залогом (05 разд. 9, 14 разд. 4.3, вкладка «Залог»): удержание, зачёт в счёт долга, возврат.
 // В диалоге зачёта — открытые начисления с флажками; по умолчанию отмечены по порядку погашения до суммы остатка.
-// Связь удержания с заявкой или затратой появится вместе с этими разделами (этап M11).
+// Удержание можно связать с заявкой объекта договора (05 разд. 9.2); затрата за счёт нанимателя оформляет
+// удержание сама — из диалога затраты.
 import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useCharges, type Charge } from '@/api/queries/charges'
+import { useContract } from '@/api/queries/contracts'
+import { useRequests } from '@/api/queries/maintenance'
 import { useDepositMutations } from '@/api/queries/payments'
 import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
@@ -39,7 +42,16 @@ const form = reactive({
   reason: '',
   method: 'bank_transfer' as 'bank_transfer' | 'cash',
   chargeIds: [] as string[],
+  maintenanceRequestId: null as string | null,
 })
+const contract = useContract(() => props.contractId)
+const requests = useRequests(
+  () => ({ propertyId: contract.data.value?.property.id, pageSize: 100 }),
+  () => visible.value && props.kind === 'withhold' && !!contract.data.value,
+)
+const requestOptions = computed(() =>
+  (requests.data.value?.items ?? []).map((r) => ({ value: r.id, label: `${r.number} — ${r.title}` })),
+)
 const amountError = ref<string | null>(null)
 const submitted = ref(false)
 const serverErrors = ref<Record<string, string>>({})
@@ -82,6 +94,7 @@ watch(visible, (v) => {
     reason: '',
     method: 'bank_transfer',
     chargeIds: [],
+    maintenanceRequestId: null,
   })
   if (props.kind === 'offset') defaultSelection()
   amountError.value = null
@@ -118,7 +131,11 @@ async function save() {
   if (Object.keys(errors.value).length) return
   const base = { amountKop: form.amountKop!, opDate: form.opDate!, reason: form.reason.trim() }
   try {
-    if (props.kind === 'withhold') await m.withhold.mutateAsync({ contractId: props.contractId, body: base })
+    if (props.kind === 'withhold')
+      await m.withhold.mutateAsync({
+        contractId: props.contractId,
+        body: { ...base, maintenanceRequestId: form.maintenanceRequestId },
+      })
     else if (props.kind === 'offset')
       await m.offset.mutateAsync({ contractId: props.contractId, body: { ...base, chargeIds: form.chargeIds } })
     else await m.refund.mutateAsync({ contractId: props.contractId, body: { ...base, method: form.method } })
@@ -192,6 +209,20 @@ const pending = computed(() => m.withhold.isPending.value || m.offset.isPending.
           option-value="value"
           :allow-empty="false"
           aria-labelledby="do-method"
+        />
+      </div>
+      <div v-if="kind === 'withhold'" class="field">
+        <label for="do-request">Заявка</label>
+        <Select
+          v-model="form.maintenanceRequestId"
+          input-id="do-request"
+          :options="requestOptions"
+          option-label="label"
+          option-value="value"
+          filter
+          show-clear
+          placeholder="Без заявки"
+          fluid
         />
       </div>
       <div class="field">

@@ -24,6 +24,8 @@ type Querier interface {
 	ActivateUser(ctx context.Context, arg ActivateUserParams) (User, error)
 	// Активные распределения на начисление, последние первыми (отмена излишка — с последних по времени).
 	ActiveAllocations(ctx context.Context, chargeID uuid.UUID) ([]ActiveAllocationsRow, error)
+	// Действующий договор объекта на дату (подставляется в новую заявку).
+	ActiveContractOfProperty(ctx context.Context, arg ActiveContractOfPropertyParams) (Contract, error)
 	ActiveOwnerUsers(ctx context.Context) ([]ActiveOwnerUsersRow, error)
 	// Незавершённая онлайн-оплата договора (карточка «К оплате» кабинета).
 	ActivePendingPayment(ctx context.Context, arg ActivePendingPaymentParams) (Payment, error)
@@ -87,12 +89,14 @@ type Querier interface {
 	CountContracts(ctx context.Context, arg CountContractsParams) (int64, error)
 	CountDiscrepancies(ctx context.Context, arg CountDiscrepanciesParams) (int64, error)
 	CountEmailLog(ctx context.Context, arg CountEmailLogParams) (int64, error)
+	CountExpenses(ctx context.Context, arg CountExpensesParams) (CountExpensesRow, error)
 	CountFiscalReceipts(ctx context.Context, arg CountFiscalReceiptsParams) (int64, error)
 	CountJobRuns(ctx context.Context, jobName *string) (int64, error)
 	CountOpenContractsByProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	CountPayments(ctx context.Context, arg CountPaymentsParams) (int64, error)
 	CountProperties(ctx context.Context, arg CountPropertiesParams) (int64, error)
 	CountReadings(ctx context.Context, arg CountReadingsParams) (int64, error)
+	CountRequests(ctx context.Context, arg CountRequestsParams) (int64, error)
 	// Повторные отправки письма: dedupe_key с суффиксом «:resend:<n>».
 	CountResends(ctx context.Context, prefix string) (int64, error)
 	CountTenants(ctx context.Context, arg CountTenantsParams) (int64, error)
@@ -124,6 +128,7 @@ type Querier interface {
 	DeleteAutoEventsByPrefix(ctx context.Context, prefix string) error
 	DeleteCalendarEvent(ctx context.Context, id uuid.UUID) error
 	DeleteContract(ctx context.Context, id uuid.UUID) error
+	DeleteExpense(ctx context.Context, id uuid.UUID) error
 	// Удалить будущие автособытия договора, кроме указанного ключа (расторжение, 05 разд. 4.7).
 	DeleteFutureAutoEvents(ctx context.Context, arg DeleteFutureAutoEventsParams) error
 	DeleteInventory(ctx context.Context, propertyID uuid.UUID) error
@@ -155,6 +160,8 @@ type Querier interface {
 	DuplicateCandidates(ctx context.Context, arg DuplicateCandidatesParams) ([]Payment, error)
 	// Действующие договоры, срок которых заканчивается не позже @until (письмо об окончании договора).
 	EndingContracts(ctx context.Context, arg EndingContractsParams) ([]EndingContractsRow, error)
+	// Затраты объекта с даты оплаты (показатель карточки объекта «расходы с начала года»).
+	ExpensesOfProperty(ctx context.Context, arg ExpensesOfPropertyParams) (int64, error)
 	// Онлайн-платежи pending с истёкшей ссылкой (задача payments.expire_pending, 07).
 	ExpiredPendingPayments(ctx context.Context, now *time.Time) ([]Payment, error)
 	ExtendContract(ctx context.Context, arg ExtendContractParams) (Contract, error)
@@ -193,6 +200,8 @@ type Querier interface {
 	GetEmailLog(ctx context.Context, id uuid.UUID) (EmailLog, error)
 	// Письма (FR-10).
 	GetEmailTemplate(ctx context.Context, code string) (EmailTemplate, error)
+	GetExpenseForUpdate(ctx context.Context, id uuid.UUID) (Expense, error)
+	GetExpenseRow(ctx context.Context, id uuid.UUID) (GetExpenseRowRow, error)
 	GetFile(ctx context.Context, id uuid.UUID) (File, error)
 	GetFiscalReceipt(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	// Чек под блокировкой и сколько секунд он в текущем состоянии (по часам сервера БД).
@@ -210,6 +219,9 @@ type Querier interface {
 	GetReading(ctx context.Context, id uuid.UUID) (GetReadingRow, error)
 	GetReadingForUpdate(ctx context.Context, id uuid.UUID) (MeterReading, error)
 	GetRefund(ctx context.Context, id uuid.UUID) (Refund, error)
+	GetRequest(ctx context.Context, id uuid.UUID) (MaintenanceRequest, error)
+	GetRequestForUpdate(ctx context.Context, id uuid.UUID) (MaintenanceRequest, error)
+	GetRequestRow(ctx context.Context, id uuid.UUID) (GetRequestRowRow, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
 	GetTariff(ctx context.Context, id uuid.UUID) (Tariff, error)
 	GetTemplate(ctx context.Context, id uuid.UUID) (DocumentTemplate, error)
@@ -242,6 +254,8 @@ type Querier interface {
 	InsertDepositTx(ctx context.Context, arg InsertDepositTxParams) (DepositTransaction, error)
 	InsertDocument(ctx context.Context, arg InsertDocumentParams) (Document, error)
 	InsertEmailLog(ctx context.Context, arg InsertEmailLogParams) (uuid.UUID, error)
+	// Затраты
+	InsertExpense(ctx context.Context, arg InsertExpenseParams) (Expense, error)
 	// Файлы (06 API, раздел 6).
 	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
 	// Чеки (FR-06.2, FR-06.4; docs/spec/05 разд. 11, 08 разд. 3).
@@ -262,6 +276,10 @@ type Querier interface {
 	// Онлайн-оплата (FR-06.1, 08 разд. 1)
 	InsertPendingPayment(ctx context.Context, arg InsertPendingPaymentParams) (Payment, error)
 	InsertRefund(ctx context.Context, arg InsertRefundParams) (Refund, error)
+	// Заявки на обслуживание (FR-08) и затраты (FR-05.6).
+	InsertRequest(ctx context.Context, arg InsertRequestParams) (MaintenanceRequest, error)
+	InsertRequestEvent(ctx context.Context, arg InsertRequestEventParams) (MaintenanceRequestEvent, error)
+	InsertRequestPhoto(ctx context.Context, arg InsertRequestPhotoParams) error
 	InsertResend(ctx context.Context, arg InsertResendParams) (EmailLog, error)
 	InsertStatusHistory(ctx context.Context, arg InsertStatusHistoryParams) error
 	InsertTemplateVersion(ctx context.Context, arg InsertTemplateVersionParams) (DocumentTemplate, error)
@@ -274,6 +292,8 @@ type Querier interface {
 	// Последнее принятое показание счётчика.
 	LastAcceptedReading(ctx context.Context, meterID uuid.UUID) (LastAcceptedReadingRow, error)
 	LastAmendmentDocuments(ctx context.Context, ids []uuid.UUID) ([]LastAmendmentDocumentsRow, error)
+	// Действующий или последний договор объекта (возмещение затраты за счёт нанимателя, 05 разд. 14.2).
+	LastContractOfProperty(ctx context.Context, propertyID uuid.UUID) (Contract, error)
 	// Последняя неотменённая операция по договору (отменить можно только её, 05 разд. 9.5).
 	LastDepositOperation(ctx context.Context, contractID uuid.UUID) (DepositTransaction, error)
 	// Последний запуск плановой задачи.
@@ -304,6 +324,7 @@ type Querier interface {
 	ListEmailLog(ctx context.Context, arg ListEmailLogParams) ([]EmailLog, error)
 	// Шаблоны писем (FR-10.3)
 	ListEmailTemplates(ctx context.Context) ([]EmailTemplate, error)
+	ListExpenses(ctx context.Context, arg ListExpensesParams) ([]ListExpensesRow, error)
 	ListFiscalReceipts(ctx context.Context, arg ListFiscalReceiptsParams) ([]ListFiscalReceiptsRow, error)
 	ListInventory(ctx context.Context, propertyID uuid.UUID) ([]PropertyInventoryItem, error)
 	ListJobRuns(ctx context.Context, arg ListJobRunsParams) ([]JobRun, error)
@@ -316,6 +337,7 @@ type Querier interface {
 	ListPropertyContracts(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyContractsRow, error)
 	ListPropertyPhotos(ctx context.Context, propertyID uuid.UUID) ([]ListPropertyPhotosRow, error)
 	ListReadings(ctx context.Context, arg ListReadingsParams) ([]ListReadingsRow, error)
+	ListRequests(ctx context.Context, arg ListRequestsParams) ([]ListRequestsRow, error)
 	ListStatusHistory(ctx context.Context, propertyID uuid.UUID) ([]ListStatusHistoryRow, error)
 	ListTariffs(ctx context.Context, arg ListTariffsParams) ([]ListTariffsRow, error)
 	ListTenantContracts(ctx context.Context, tenantID uuid.UUID) ([]ListTenantContractsRow, error)
@@ -352,6 +374,7 @@ type Querier interface {
 	OpenChargesForAllocation(ctx context.Context, contractID uuid.UUID) ([]Charge, error)
 	// Открытые расхождения «переплата» договора со статусом платежа (аванс — запросом PaymentAdvance).
 	OpenOverpayments(ctx context.Context, contractID *uuid.UUID) ([]OpenOverpaymentsRow, error)
+	OpenRequestsOfProperty(ctx context.Context, propertyID uuid.UUID) (int64, error)
 	OpenUnderpayment(ctx context.Context, contractID *uuid.UUID) (Discrepancy, error)
 	// Открытые недоплаты для billing.penalties_daily: остаток долга со сроком не позже даты обнаружения.
 	OpenUnderpaymentsAll(ctx context.Context) ([]OpenUnderpaymentsAllRow, error)
@@ -407,6 +430,8 @@ type Querier interface {
 	// Расхождение «неопознанный» по строке выписки: создаётся или открывается заново.
 	ReopenUnidentified(ctx context.Context, arg ReopenUnidentifiedParams) (uuid.UUID, error)
 	ReplaceStatusHistory(ctx context.Context, arg ReplaceStatusHistoryParams) error
+	RequestEvents(ctx context.Context, requestID uuid.UUID) ([]RequestEventsRow, error)
+	RequestPhotos(ctx context.Context, requestID uuid.UUID) ([]File, error)
 	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
 	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
@@ -436,6 +461,7 @@ type Querier interface {
 	SetDocumentVisibility(ctx context.Context, arg SetDocumentVisibilityParams) (Document, error)
 	SetEventDone(ctx context.Context, arg SetEventDoneParams) error
 	SetEventNotes(ctx context.Context, arg SetEventNotesParams) error
+	SetExpenseRecovery(ctx context.Context, arg SetExpenseRecoveryParams) (Expense, error)
 	SetFiscalDone(ctx context.Context, arg SetFiscalDoneParams) (FiscalReceipt, error)
 	// attempts_inc — 1, если ошибка получена при отправке (новая попытка), 0 — при опросе отчёта.
 	SetFiscalFail(ctx context.Context, arg SetFiscalFailParams) (FiscalReceipt, error)
@@ -452,6 +478,7 @@ type Querier interface {
 	SetPropertyPhotoSort(ctx context.Context, arg SetPropertyPhotoSortParams) error
 	SetPropertyStatus(ctx context.Context, arg SetPropertyStatusParams) error
 	SetProviderStatus(ctx context.Context, arg SetProviderStatusParams) error
+	SetRequestStatus(ctx context.Context, arg SetRequestStatusParams) (MaintenanceRequest, error)
 	SetStatusHistoryValidTo(ctx context.Context, arg SetStatusHistoryValidToParams) error
 	SetUnderpayment(ctx context.Context, arg SetUnderpaymentParams) error
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
@@ -482,17 +509,20 @@ type Querier interface {
 	// Договоры нанимателя (без черновиков): сначала действующие, затем по дате начала, новые первыми.
 	TenantContracts(ctx context.Context, tenantID uuid.UUID) ([]TenantContractsRow, error)
 	TerminateContract(ctx context.Context, arg TerminateContractParams) (Contract, error)
+	TouchRequest(ctx context.Context, arg TouchRequestParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UnidentifiedOfLine(ctx context.Context, bankStatementLineID *uuid.UUID) (Discrepancy, error)
 	UpdateAct(ctx context.Context, arg UpdateActParams) (ContractAct, error)
 	UpdateAmendment(ctx context.Context, arg UpdateAmendmentParams) (ContractAmendment, error)
 	UpdateDraftContract(ctx context.Context, arg UpdateDraftContractParams) (Contract, error)
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (EmailTemplate, error)
+	UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (Expense, error)
 	UpdateFirstTerms(ctx context.Context, arg UpdateFirstTermsParams) error
 	UpdateManualEvent(ctx context.Context, arg UpdateManualEventParams) error
 	UpdateMeter(ctx context.Context, arg UpdateMeterParams) (Meter, error)
 	UpdatePenalty(ctx context.Context, arg UpdatePenaltyParams) error
 	UpdateProperty(ctx context.Context, arg UpdatePropertyParams) (Property, error)
+	UpdateRequestFields(ctx context.Context, arg UpdateRequestFieldsParams) (MaintenanceRequest, error)
 	UpdateTenant(ctx context.Context, arg UpdateTenantParams) (Tenant, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	// Автоматическое событие календаря (05 разд. 13.1); повтор по тому же ключу обновляет дату и название.

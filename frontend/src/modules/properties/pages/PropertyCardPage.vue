@@ -13,6 +13,8 @@ import { formatDate, toIsoDate } from '@/utils/date'
 import { propertyKindLabels, propertyStatusLabels, propertyStatusSeverity } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
 import ChargesTab from '../components/ChargesTab.vue'
+import ExpensesTab from '../components/ExpensesTab.vue'
+import RequestsTab from '../components/RequestsTab.vue'
 import ContractsTab from '../components/ContractsTab.vue'
 import InventoryTab from '../components/InventoryTab.vue'
 import MetersTab from '../components/MetersTab.vue'
@@ -32,8 +34,8 @@ const tabs = [
   { value: 'overview', label: 'Обзор' },
   { value: 'contracts', label: 'Договоры' },
   { value: 'charges', label: 'Начисления' },
-  { value: 'expenses', label: 'Затраты', stage: 'M11' },
-  { value: 'requests', label: 'Заявки', stage: 'M11' },
+  { value: 'expenses', label: 'Затраты' },
+  { value: 'requests', label: 'Заявки' },
   { value: 'meters', label: 'Счётчики' },
   { value: 'inventory', label: 'Опись имущества' },
   { value: 'history', label: 'История статусов' },
@@ -162,6 +164,8 @@ async function saveStatus() {
           <TabPanel value="overview"><OverviewTab :property="p" /></TabPanel>
           <TabPanel value="contracts"><ContractsTab v-if="tab === 'contracts'" :property-id="p.id" /></TabPanel>
           <TabPanel value="charges"><ChargesTab v-if="tab === 'charges'" :property-id="p.id" /></TabPanel>
+          <TabPanel value="expenses"><ExpensesTab v-if="tab === 'expenses'" :property-id="p.id" /></TabPanel>
+          <TabPanel value="requests"><RequestsTab v-if="tab === 'requests'" :property-id="p.id" /></TabPanel>
           <TabPanel value="meters"
             ><MetersTab v-if="tab === 'meters'" :property-id="p.id" :archived="!!p.archivedAt"
           /></TabPanel>
