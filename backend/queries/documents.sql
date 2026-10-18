@@ -138,13 +138,7 @@ WHERE contract_id = @contract_id AND kind = 'withholding' AND cancelled_at IS NU
 ORDER BY op_date, created_at, id;
 
 -- name: FirstExtension :one
--- Первое подписанное допсоглашение о продлении договора (№ 35).
-SELECT effective_from, applied_at FROM contract_amendments
+-- Первое подписанное допсоглашение о продлении договора: дата окончания до него (№ 35, № 107).
+SELECT prev_end_date, effective_from FROM contract_amendments
 WHERE contract_id = @contract_id AND kind = 'extension' AND status = 'signed'
 ORDER BY applied_at, number LIMIT 1;
-
--- name: ContractDocumentSnapshotBefore :one
--- Данные последнего документа договора, сформированного до первого продления (№ 35).
-SELECT data_snapshot FROM documents
-WHERE contract_id = @contract_id AND kind IN ('contract_ch35', 'contract_ch34') AND created_at < @before
-ORDER BY created_at DESC, id DESC LIMIT 1;

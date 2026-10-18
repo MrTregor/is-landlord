@@ -76,8 +76,6 @@ type Querier interface {
 	ContractDebtsToday(ctx context.Context, today date.Date) ([]ContractDebtsTodayRow, error)
 	// Сформирован ли документ договора не раньше момента since (05 разд. 4.4, п. 7).
 	ContractDocumentSince(ctx context.Context, arg ContractDocumentSinceParams) (bool, error)
-	// Данные последнего документа договора, сформированного до первого продления (№ 35).
-	ContractDocumentSnapshotBefore(ctx context.Context, arg ContractDocumentSnapshotBeforeParams) ([]byte, error)
 	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
 	ContractForPropertyMonth(ctx context.Context, arg ContractForPropertyMonthParams) (Contract, error)
 	// Плановые рассылки (07 Фоновые задачи, 8–10; 10 Уведомления, раздел 2)
@@ -207,7 +205,7 @@ type Querier interface {
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
 	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
-	// Первое подписанное допсоглашение о продлении договора (№ 35).
+	// Первое подписанное допсоглашение о продлении договора: дата окончания до него (№ 35, № 107).
 	FirstExtension(ctx context.Context, contractID uuid.UUID) (FirstExtensionRow, error)
 	FirstStatusDates(ctx context.Context) ([]FirstStatusDatesRow, error)
 	// Данные для чека: платёж, договор, наниматель, объект.
@@ -494,8 +492,9 @@ type Querier interface {
 	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
 	// Ещё не обезличенные наниматели, у которых истёк срок хранения (дата + срок раньше сегодняшнего дня):
-	// с договорами (кроме черновиков), все не draft/active/extended, — от последнего фактического конца договора;
-	// без договоров — от создания нанимателя, только с черновиками — от последнего изменения черновика (№ 105).
+	// с договорами (кроме черновиков), все не draft/active/extended, — years лет от последнего фактического конца договора;
+	// без договоров (кроме черновиков) — no_contract_months месяцев от последнего изменения карточки или черновика
+	// (цель «заключение договора» отпала, ч. 4 ст. 21 152-ФЗ; № 105, № 108).
 	RetentionCandidates(ctx context.Context, arg RetentionCandidatesParams) ([]uuid.UUID, error)
 	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
@@ -511,6 +510,8 @@ type Querier interface {
 	// Договоры для вычисляемых сроков оплаты в календаре: действующие, пересекающие диапазон.
 	ScheduleContracts(ctx context.Context, arg ScheduleContractsParams) ([]ScheduleContractsRow, error)
 	SetActDocument(ctx context.Context, arg SetActDocumentParams) error
+	// Дата окончания договора до продления (№ 107).
+	SetAmendmentPrevEndDate(ctx context.Context, arg SetAmendmentPrevEndDateParams) (ContractAmendment, error)
 	SetAutoEventDone(ctx context.Context, arg SetAutoEventDoneParams) error
 	// Неопознанная строка: «возвращён плательщику» (refunded) или «не относится к аренде» (ignored).
 	SetBankLineClosed(ctx context.Context, arg SetBankLineClosedParams) error

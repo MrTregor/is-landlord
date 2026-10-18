@@ -5,6 +5,7 @@ package document_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/testsupport"
+	"landlord/backend/migrations"
 )
 
 func TestMain(m *testing.M) { testsupport.Main(m) }
@@ -212,35 +214,64 @@ func TestContractDocument_FR04_1(t *testing.T) {
 	require.NotNil(t, upd.SignedScanURL)
 }
 
-// Повторно сформированный договор после продления: срок — первоначальный, как и плата (№ 35): из данных документа,
-// сформированного до продления, а без них — день перед вступлением допсоглашения о продлении (FR-04.1).
+// Повторно сформированный договор после продлений: срок — первоначальный, как и плата (№ 35): prev_end_date первого
+// продления, записанная при подписании, — даже если дата вступления продления не следует за прежним окончанием (№ 107).
+// Миграция 0007 восстанавливает prev_end_date уже подписанных продлений по журналу действий (FR-04.1).
 func TestContractDocumentOriginalTerm_FR04_1(t *testing.T) {
 	w := setup(t, "h8")
 	w.meter(t)
 	id := w.contract(t, "2026-03-15", "2027-03-14")
 	w.activate(t, id)
-	w.env.Clock.Advance(time.Minute)
-	w.c.Login(w.owner, ownerPassword)
-	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/amendments", map[string]any{
-		"kind": "extension", "effectiveFrom": "2027-03-15", "newEndDate": "2027-12-31"})
-	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
-	r = w.c.Do(http.MethodPost, "/amendments/"+r.ID(t)+"/sign", map[string]any{"signedOn": "2026-10-16"})
-	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
-
-	regenerate := func() string {
+	extend := func(from, to string) string {
 		t.Helper()
-		r := w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/contract", nil)
+		r := w.c.Do(http.MethodPost, "/contracts/"+id+"/amendments", map[string]any{"kind": "extension", "effectiveFrom": from, "newEndDate": to})
 		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
-		return last(w.env)
+		am := r.ID(t)
+		r = w.c.Do(http.MethodPost, "/amendments/"+am+"/sign", map[string]any{"signedOn": "2026-10-16"})
+		require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+		return am
 	}
-	html := regenerate()
+	first := extend("2026-11-01", "2027-12-31") // «С даты» изменена собственником — догадка дала бы 31.10.2026
+	second := extend("2028-01-01", "2028-06-30")
+	ctx := context.Background()
+	conn := testsupport.Owner(t)
+	prev := func(am string) string {
+		t.Helper()
+		var d string
+		require.NoError(t, conn.QueryRow(ctx, `SELECT prev_end_date::text FROM contract_amendments WHERE id = $1`, am).Scan(&d))
+		return d
+	}
+	assert.Equal(t, "2027-03-14", prev(first))
+	assert.Equal(t, "2027-12-31", prev(second))
+
+	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/contract", nil)
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	html := last(w.env)
 	assert.Contains(t, html, "с 15.03.2026 по 14.03.2027 включительно")
 	assert.NotContains(t, html, "31.12.2027")
 
-	// Данных документа нет (например, после обезличивания) — по дате вступления продления.
-	_, err := testsupport.Owner(t).Exec(context.Background(), `UPDATE documents SET data_snapshot = '{}' WHERE contract_id = $1`, id)
+	// Заполнение в миграции 0007: та же выборка по уже подписанным продлениям с пустым prev_end_date.
+	raw, err := fs.ReadFile(migrations.FS, "0007_amendment_prev_end_date.sql")
 	require.NoError(t, err)
-	assert.Contains(t, regenerate(), "с 15.03.2026 по 14.03.2027 включительно")
+	src := string(raw)
+	backfill := src[strings.Index(src, "WITH ext AS"):strings.Index(src, "-- +goose Down")]
+	_, err = conn.Exec(ctx, `UPDATE contract_amendments SET prev_end_date = NULL WHERE contract_id = $1`, id)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, backfill)
+	require.NoError(t, err)
+	assert.Equal(t, "2027-03-14", prev(first), "из журнала: снимок договора до подписания")
+	assert.Equal(t, "2027-12-31", prev(second), "новая дата окончания предыдущего продления")
+	_, err = conn.Exec(ctx, `SET session_replication_role = replica`) // журнал неизменяем — удаление мимо триггеров
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `DELETE FROM audit_log WHERE entity_type = 'contract' AND entity_id = $1`, id)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `SET session_replication_role = DEFAULT`)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `UPDATE contract_amendments SET prev_end_date = NULL WHERE contract_id = $1`, id)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, backfill)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-31", prev(first), "записи в журнале нет — день перед датой вступления")
 }
 
 // Активация без сформированного вручную документа создаёт документ договора (05 разд. 4.4 п. 7);

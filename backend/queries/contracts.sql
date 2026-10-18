@@ -220,6 +220,10 @@ RETURNING *;
 -- name: SignAmendment :one
 UPDATE contract_amendments SET status = 'signed', signed_on = @signed_on, applied_at = @now WHERE id = @id RETURNING *;
 
+-- name: SetAmendmentPrevEndDate :one
+-- Дата окончания договора до продления (№ 107).
+UPDATE contract_amendments SET prev_end_date = @prev_end_date WHERE id = @id RETURNING *;
+
 -- name: CancelAmendment :one
 UPDATE contract_amendments SET status = 'cancelled', cancel_reason = @cancel_reason WHERE id = @id RETURNING *;
 

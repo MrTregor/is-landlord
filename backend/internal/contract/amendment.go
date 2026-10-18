@@ -154,7 +154,7 @@ func amendSnapshot(a sqlc.ContractAmendment) map[string]any {
 	return map[string]any{
 		"number": a.Number, "kind": a.Kind, "status": a.Status, "effectiveFrom": a.EffectiveFrom.String(),
 		"newRentKop": a.NewRentKop, "newUtilitiesFixedKop": a.NewUtilitiesFixedKop, "newPaymentDay": a.NewPaymentDay,
-		"newEndDate": dateStr(a.NewEndDate), "bodyText": a.BodyText,
+		"newEndDate": dateStr(a.NewEndDate), "prevEndDate": dateStr(a.PrevEndDate), "bodyText": a.BodyText,
 	}
 }
 
@@ -262,6 +262,10 @@ func (s *Service) SignAmendment(ctx context.Context, id uuid.UUID, signedOn date
 			}
 		}
 		if a.Kind == AmendExtension {
+			// Дата окончания до продления — для первоначального срока в тексте договора (№ 107).
+			if a, err = tx.Q.SetAmendmentPrevEndDate(ctx, sqlc.SetAmendmentPrevEndDateParams{ID: a.ID, PrevEndDate: &c.EndDate}); err != nil {
+				return err
+			}
 			if c, err = s.extend(ctx, tx, c, *a.NewEndDate); err != nil {
 				return err
 			}

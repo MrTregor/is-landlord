@@ -204,26 +204,28 @@ func (q *Queries) OrphanFiles(ctx context.Context, before time.Time) ([]OrphanFi
 const retentionCandidates = `-- name: RetentionCandidates :many
 SELECT t.id FROM tenants t LEFT JOIN contracts c ON c.tenant_id = t.id
 WHERE t.anonymized_at IS NULL
-GROUP BY t.id, t.created_at
+GROUP BY t.id, t.updated_at
 HAVING (count(c.id) FILTER (WHERE c.status <> 'draft') > 0
         AND bool_and(c.status NOT IN ('draft', 'active', 'extended'))
         AND (max(c.actual_end_date) + make_interval(years => $1::int))::date < $2::date)
     OR (count(c.id) FILTER (WHERE c.status <> 'draft') = 0
-        AND ((coalesce(max(c.updated_at), t.created_at) AT TIME ZONE 'Europe/Moscow')::date
-             + make_interval(years => $1::int))::date < $2::date)
+        AND ((greatest(t.updated_at, max(c.updated_at)) AT TIME ZONE 'Europe/Moscow')::date
+             + make_interval(months => $3::int))::date < $2::date)
 ORDER BY t.id
 `
 
 type RetentionCandidatesParams struct {
-	Years int32
-	Today date.Date
+	Years            int32
+	Today            date.Date
+	NoContractMonths int32
 }
 
 // Ещё не обезличенные наниматели, у которых истёк срок хранения (дата + срок раньше сегодняшнего дня):
-// с договорами (кроме черновиков), все не draft/active/extended, — от последнего фактического конца договора;
-// без договоров — от создания нанимателя, только с черновиками — от последнего изменения черновика (№ 105).
+// с договорами (кроме черновиков), все не draft/active/extended, — years лет от последнего фактического конца договора;
+// без договоров (кроме черновиков) — no_contract_months месяцев от последнего изменения карточки или черновика
+// (цель «заключение договора» отпала, ч. 4 ст. 21 152-ФЗ; № 105, № 108).
 func (q *Queries) RetentionCandidates(ctx context.Context, arg RetentionCandidatesParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, retentionCandidates, arg.Years, arg.Today)
+	rows, err := q.db.Query(ctx, retentionCandidates, arg.Years, arg.Today, arg.NoContractMonths)
 	if err != nil {
 		return nil, err
 	}

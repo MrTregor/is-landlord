@@ -174,7 +174,7 @@ func (q *Queries) ActivePropertyMeters(ctx context.Context, propertyID uuid.UUID
 }
 
 const cancelAmendment = `-- name: CancelAmendment :one
-UPDATE contract_amendments SET status = 'cancelled', cancel_reason = $1 WHERE id = $2 RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at
+UPDATE contract_amendments SET status = 'cancelled', cancel_reason = $1 WHERE id = $2 RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date
 `
 
 type CancelAmendmentParams struct {
@@ -204,6 +204,7 @@ func (q *Queries) CancelAmendment(ctx context.Context, arg CancelAmendmentParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }
@@ -738,7 +739,7 @@ INSERT INTO contract_amendments (contract_id, number, kind, effective_from, new_
 VALUES ($1, COALESCE((SELECT max(number) + 1 FROM contract_amendments WHERE contract_id = $1), 1),
         $2, $3, $4, $5, $6,
         $7, $8, $9, $10, $11, $11)
-RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at
+RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date
 `
 
 type CreateAmendmentParams struct {
@@ -789,6 +790,7 @@ func (q *Queries) CreateAmendment(ctx context.Context, arg CreateAmendmentParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }
@@ -1104,7 +1106,7 @@ func (q *Queries) GetActForUpdate(ctx context.Context, id uuid.UUID) (ContractAc
 }
 
 const getAmendment = `-- name: GetAmendment :one
-SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at FROM contract_amendments WHERE id = $1
+SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date FROM contract_amendments WHERE id = $1
 `
 
 func (q *Queries) GetAmendment(ctx context.Context, id uuid.UUID) (ContractAmendment, error) {
@@ -1129,12 +1131,13 @@ func (q *Queries) GetAmendment(ctx context.Context, id uuid.UUID) (ContractAmend
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }
 
 const getAmendmentForUpdate = `-- name: GetAmendmentForUpdate :one
-SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at FROM contract_amendments WHERE id = $1 FOR UPDATE
+SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date FROM contract_amendments WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetAmendmentForUpdate(ctx context.Context, id uuid.UUID) (ContractAmendment, error) {
@@ -1159,6 +1162,7 @@ func (q *Queries) GetAmendmentForUpdate(ctx context.Context, id uuid.UUID) (Cont
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }
@@ -1437,7 +1441,7 @@ func (q *Queries) ListActs(ctx context.Context, contractID uuid.UUID) ([]Contrac
 
 const listAmendments = `-- name: ListAmendments :many
 
-SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at FROM contract_amendments WHERE contract_id = $1 ORDER BY number
+SELECT id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date FROM contract_amendments WHERE contract_id = $1 ORDER BY number
 `
 
 // Допсоглашения
@@ -1469,6 +1473,7 @@ func (q *Queries) ListAmendments(ctx context.Context, contractID uuid.UUID) ([]C
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PrevEndDate,
 		); err != nil {
 			return nil, err
 		}
@@ -2041,6 +2046,43 @@ func (q *Queries) PreviousReading(ctx context.Context, arg PreviousReadingParams
 	return i, err
 }
 
+const setAmendmentPrevEndDate = `-- name: SetAmendmentPrevEndDate :one
+UPDATE contract_amendments SET prev_end_date = $1 WHERE id = $2 RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date
+`
+
+type SetAmendmentPrevEndDateParams struct {
+	PrevEndDate *date.Date
+	ID          uuid.UUID
+}
+
+// Дата окончания договора до продления (№ 107).
+func (q *Queries) SetAmendmentPrevEndDate(ctx context.Context, arg SetAmendmentPrevEndDateParams) (ContractAmendment, error) {
+	row := q.db.QueryRow(ctx, setAmendmentPrevEndDate, arg.PrevEndDate, arg.ID)
+	var i ContractAmendment
+	err := row.Scan(
+		&i.ID,
+		&i.ContractID,
+		&i.Number,
+		&i.Kind,
+		&i.Status,
+		&i.EffectiveFrom,
+		&i.NewRentKop,
+		&i.NewUtilitiesFixedKop,
+		&i.NewPaymentDay,
+		&i.NewEndDate,
+		&i.BodyText,
+		&i.SignedOn,
+		&i.CancelReason,
+		&i.AutoCreated,
+		&i.AppliedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PrevEndDate,
+	)
+	return i, err
+}
+
 const setNextIndexation = `-- name: SetNextIndexation :exec
 UPDATE contracts SET next_indexation_on = $1 WHERE id = $2
 `
@@ -2101,7 +2143,7 @@ func (q *Queries) SignAct(ctx context.Context, arg SignActParams) (ContractAct, 
 }
 
 const signAmendment = `-- name: SignAmendment :one
-UPDATE contract_amendments SET status = 'signed', signed_on = $1, applied_at = $2 WHERE id = $3 RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at
+UPDATE contract_amendments SET status = 'signed', signed_on = $1, applied_at = $2 WHERE id = $3 RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date
 `
 
 type SignAmendmentParams struct {
@@ -2132,6 +2174,7 @@ func (q *Queries) SignAmendment(ctx context.Context, arg SignAmendmentParams) (C
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }
@@ -2299,7 +2342,7 @@ SET kind = $1, effective_from = $2, new_rent_kop = $3,
     new_utilities_fixed_kop = $4, new_payment_day = $5,
     new_end_date = $6, body_text = $7
 WHERE id = $8
-RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at
+RETURNING id, contract_id, number, kind, status, effective_from, new_rent_kop, new_utilities_fixed_kop, new_payment_day, new_end_date, body_text, signed_on, cancel_reason, auto_created, applied_at, created_by, created_at, updated_at, prev_end_date
 `
 
 type UpdateAmendmentParams struct {
@@ -2344,6 +2387,7 @@ func (q *Queries) UpdateAmendment(ctx context.Context, arg UpdateAmendmentParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PrevEndDate,
 	)
 	return i, err
 }

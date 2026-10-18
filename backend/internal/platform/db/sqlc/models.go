@@ -242,6 +242,8 @@ type ContractAmendment struct {
 	CreatedBy            *uuid.UUID
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	// end_date договора до продления (для kind = extension)
+	PrevEndDate *date.Date
 }
 
 // Граждане, постоянно проживающие с нанимателем (ст. 677 ГК РФ)

@@ -105,25 +105,6 @@ func (q *Queries) ContractDocumentSince(ctx context.Context, arg ContractDocumen
 	return exists, err
 }
 
-const contractDocumentSnapshotBefore = `-- name: ContractDocumentSnapshotBefore :one
-SELECT data_snapshot FROM documents
-WHERE contract_id = $1 AND kind IN ('contract_ch35', 'contract_ch34') AND created_at < $2
-ORDER BY created_at DESC, id DESC LIMIT 1
-`
-
-type ContractDocumentSnapshotBeforeParams struct {
-	ContractID *uuid.UUID
-	Before     time.Time
-}
-
-// Данные последнего документа договора, сформированного до первого продления (№ 35).
-func (q *Queries) ContractDocumentSnapshotBefore(ctx context.Context, arg ContractDocumentSnapshotBeforeParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, contractDocumentSnapshotBefore, arg.ContractID, arg.Before)
-	var data_snapshot []byte
-	err := row.Scan(&data_snapshot)
-	return data_snapshot, err
-}
-
 const deactivateTemplates = `-- name: DeactivateTemplates :exec
 UPDATE document_templates SET is_active = false WHERE kind = $1 AND is_active
 `
@@ -153,21 +134,21 @@ func (q *Queries) DepositBalanceOn(ctx context.Context, arg DepositBalanceOnPara
 }
 
 const firstExtension = `-- name: FirstExtension :one
-SELECT effective_from, applied_at FROM contract_amendments
+SELECT prev_end_date, effective_from FROM contract_amendments
 WHERE contract_id = $1 AND kind = 'extension' AND status = 'signed'
 ORDER BY applied_at, number LIMIT 1
 `
 
 type FirstExtensionRow struct {
+	PrevEndDate   *date.Date
 	EffectiveFrom date.Date
-	AppliedAt     *time.Time
 }
 
-// Первое подписанное допсоглашение о продлении договора (№ 35).
+// Первое подписанное допсоглашение о продлении договора: дата окончания до него (№ 35, № 107).
 func (q *Queries) FirstExtension(ctx context.Context, contractID uuid.UUID) (FirstExtensionRow, error) {
 	row := q.db.QueryRow(ctx, firstExtension, contractID)
 	var i FirstExtensionRow
-	err := row.Scan(&i.EffectiveFrom, &i.AppliedAt)
+	err := row.Scan(&i.PrevEndDate, &i.EffectiveFrom)
 	return i, err
 }
 

@@ -145,8 +145,12 @@ func (s *Service) removeFiles(ctx context.Context, keys []string) {
 	}
 }
 
-// RunRetentionDaily — pdn.retention_daily: наниматели без договоров draft/active/extended, у которых последний
-// фактический конец договора + pdn_retention_years лет раньше сегодняшнего дня; каждый — в своей транзакции.
+// NoContractRetentionMonths — срок хранения ПДн нанимателя, с которым договор так и не заключён (кроме черновиков):
+// месяцев от последнего изменения карточки или черновика (12 разд. 6, № 108).
+const NoContractRetentionMonths = 6
+
+// RunRetentionDaily — pdn.retention_daily: наниматели, у которых истёк срок хранения (RetentionCandidates: после
+// договоров — pdn_retention_years лет, без договоров — NoContractRetentionMonths месяцев); каждый — в своей транзакции.
 func (s *Service) RunRetentionDaily(ctx context.Context, args jobs.DailyArgs) (*jobs.Stats, error) {
 	today := args.BusinessDate
 	if today.IsZero() {
@@ -159,7 +163,9 @@ func (s *Service) RunRetentionDaily(ctx context.Context, args jobs.DailyArgs) (*
 		if err != nil {
 			return err
 		}
-		ids, err := q.RetentionCandidates(ctx, sqlc.RetentionCandidatesParams{Years: int32(o.PdnRetentionYears), Today: today})
+		ids, err := q.RetentionCandidates(ctx, sqlc.RetentionCandidatesParams{
+			Years: int32(o.PdnRetentionYears), NoContractMonths: NoContractRetentionMonths, Today: today,
+		})
 		if err != nil {
 			return err
 		}
@@ -170,7 +176,7 @@ func (s *Service) RunRetentionDaily(ctx context.Context, args jobs.DailyArgs) (*
 				if err != nil || cur.AnonymizedAt != nil {
 					return err
 				}
-				_, keys, err = s.anonymizeTx(ctx, tx, cur, fmt.Sprintf("истёк срок хранения %d лет", o.PdnRetentionYears))
+				_, keys, err = s.anonymizeTx(ctx, tx, cur, "истёк срок хранения")
 				return err
 			})
 			if err != nil {
