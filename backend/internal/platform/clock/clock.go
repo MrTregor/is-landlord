@@ -4,6 +4,8 @@
 package clock
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"landlord/backend/internal/platform/date"
@@ -61,4 +63,60 @@ func (c *Fixed) Advance(d time.Duration) { c.now = c.now.Add(d) }
 // поэтому работает и в образе distroless без системной базы часовых поясов.
 func LoadLocation(name string) (*time.Location, error) {
 	return time.LoadLocation(name)
+}
+
+// Offset — сдвинутое время демонстрационного режима (03 Архитектура, «Время и часовой пояс»): реальное время плюс
+// сдвиг из таблицы demo_clock. Сдвиг перечитывается не чаще раза в 5 с, чтобы server и worker видели одно время.
+type Offset struct {
+	real *Real
+	load func(context.Context) (int64, error)
+	ttl  time.Duration
+
+	mu       sync.Mutex
+	offset   time.Duration
+	loadedAt time.Time
+}
+
+// NewOffset создаёт сдвинутые часы; load читает сдвиг в секундах (нет записи — 0).
+func NewOffset(loc *time.Location, load func(context.Context) (int64, error)) *Offset {
+	return &Offset{real: NewReal(loc), load: load, ttl: 5 * time.Second}
+}
+
+func (c *Offset) current() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	wall := time.Now()
+	if c.loadedAt.IsZero() || wall.Sub(c.loadedAt) >= c.ttl {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if s, err := c.load(ctx); err == nil {
+			c.offset = time.Duration(s) * time.Second
+		}
+		c.loadedAt = wall
+	}
+	return c.offset
+}
+
+func (c *Offset) Now() time.Time           { return c.real.Now().Add(c.current()) }
+func (c *Offset) Today() date.Date         { return date.In(c.Now(), c.real.loc) }
+func (c *Offset) Location() *time.Location { return c.real.loc }
+
+// RealNow — реальное время без сдвига.
+func (c *Offset) RealNow() time.Time { return c.real.Now() }
+
+// Seconds — текущий сдвиг в секундах.
+func (c *Offset) Seconds() int64 { return int64(c.current() / time.Second) }
+
+// Apply — запомнить новый сдвиг сразу после записи в базу (без ожидания перечитывания).
+func (c *Offset) Apply(seconds int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset, c.loadedAt = time.Duration(seconds)*time.Second, time.Now()
+}
+
+// OffsetFor — сдвиг в секундах, при котором «сегодня» станет датой today, а время суток сохранится.
+func OffsetFor(realNow time.Time, today date.Date, loc *time.Location) int64 {
+	local := realNow.In(loc)
+	target := time.Date(today.Year(), today.Month(), today.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond(), loc)
+	return int64(target.Sub(local) / time.Second)
 }

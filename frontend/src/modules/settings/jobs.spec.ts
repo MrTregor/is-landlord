@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cronText, statsText } from './jobs'
+import { cronText, formatSize, statsText } from './jobs'
 
 describe('плановые задачи (07)', () => {
   it('расписание по-русски', () => {
@@ -9,5 +9,13 @@ describe('плановые задачи (07)', () => {
   })
   it('итоги запуска', () => {
     expect(statsText({ contracts: 12, created: 8, errors: ['x'] })).toBe('договоров 12, создано 8, ошибок 1')
+  })
+})
+
+describe('размер резервной копии', () => {
+  it('в байтах, КБ и МБ', () => {
+    expect(formatSize(512)).toBe('512 Б')
+    expect(formatSize(12_697)).toBe('12,4 КБ')
+    expect(formatSize(1_572_864)).toBe('1,5 МБ')
   })
 })

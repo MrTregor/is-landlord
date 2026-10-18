@@ -15,6 +15,11 @@ const statTitles: Record<string, string> = {
   finished: 'завершено',
   released: 'освобождено объектов',
   rented: 'сдано объектов',
+  anonymized: 'обезличено нанимателей',
+  sessions: 'сессий удалено',
+  tokens: 'токенов удалено',
+  loginAttempts: 'попыток входа удалено',
+  files: 'файлов удалено',
 }
 
 /** Итоги запуска: «договоров 12, создано 8, ошибок 1». */
@@ -25,4 +30,17 @@ export function statsText(stats: Record<string, unknown>): string {
   const errors = Array.isArray(stats.errors) ? stats.errors.length : 0
   if (errors) parts.push(`ошибок ${errors}`)
   return parts.join(', ')
+}
+
+/** Размер файла: «512 Б», «12,4 КБ», «1,5 МБ». */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`
+  const units = ['КБ', 'МБ', 'ГБ']
+  let v = bytes / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${(Math.round(v * 10) / 10).toString().replace('.', ',')} ${units[i]}`
 }

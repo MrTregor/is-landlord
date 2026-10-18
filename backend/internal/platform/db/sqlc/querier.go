@@ -37,6 +37,10 @@ type Querier interface {
 	ActiveTemplates(ctx context.Context) ([]ActiveTemplatesRow, error)
 	AddPropertyPhoto(ctx context.Context, arg AddPropertyPhotoParams) (PropertyPhoto, error)
 	AllTariffs(ctx context.Context) ([]Tariff, error)
+	AnonymizeEmailLog(ctx context.Context, emails []string) error
+	AnonymizeOccupants(ctx context.Context, tenantID uuid.UUID) error
+	AnonymizeTenant(ctx context.Context, arg AnonymizeTenantParams) (Tenant, error)
+	AnonymizeTenantUser(ctx context.Context, arg AnonymizeTenantUserParams) (uuid.UUID, error)
 	ArchiveMeter(ctx context.Context, arg ArchiveMeterParams) (Meter, error)
 	// Пересчёт хеша каждой записи по той же формуле, что в триггере audit_log_chain (04 Модель данных).
 	AuditChain(ctx context.Context, arg AuditChainParams) ([]AuditChainRow, error)
@@ -61,6 +65,8 @@ type Querier interface {
 	// Начисления с сроком в диапазоне (календарь, 05 разд. 13.2).
 	ChargesInRange(ctx context.Context, arg ChargesInRangeParams) ([]ChargesInRangeRow, error)
 	ClearPaymentBankLink(ctx context.Context, id uuid.UUID) error
+	// Строки документов сохраняются (вид, номер, дата); содержимое с ПДн очищается.
+	ClearTenantDocuments(ctx context.Context, tenantID *uuid.UUID) error
 	CloseStatusHistory(ctx context.Context, arg CloseStatusHistoryParams) error
 	// Долг, просрочка и начисляемые пени по договорам (карточка, списки).
 	ContractBalances(ctx context.Context, arg ContractBalancesParams) ([]ContractBalancesRow, error)
@@ -151,10 +157,13 @@ type Querier interface {
 	DeleteCalendarEvent(ctx context.Context, id uuid.UUID) error
 	DeleteContract(ctx context.Context, id uuid.UUID) error
 	DeleteExpense(ctx context.Context, id uuid.UUID) error
+	DeleteExpiredAuthTokens(ctx context.Context, now time.Time) (int64, error)
+	DeleteExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 	// Удалить будущие автособытия договора, кроме указанного ключа (расторжение, 05 разд. 4.7).
 	DeleteFutureAutoEvents(ctx context.Context, arg DeleteFutureAutoEventsParams) error
 	DeleteInventory(ctx context.Context, propertyID uuid.UUID) error
 	DeleteOccupants(ctx context.Context, contractID uuid.UUID) error
+	DeleteOldLoginAttempts(ctx context.Context, before time.Time) (int64, error)
 	DeletePropertyPhoto(ctx context.Context, arg DeletePropertyPhotoParams) (int64, error)
 	DeleteStatusHistory(ctx context.Context, id uuid.UUID) error
 	DeleteTariff(ctx context.Context, id uuid.UUID) error
@@ -229,6 +238,7 @@ type Querier interface {
 	GetFiscalReceipt(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	// Чек под блокировкой и сколько секунд он в текущем состоянии (по часам сервера БД).
 	GetFiscalReceiptForUpdate(ctx context.Context, id uuid.UUID) (GetFiscalReceiptForUpdateRow, error)
+	GetJobRun(ctx context.Context, id uuid.UUID) (JobRun, error)
 	GetMeter(ctx context.Context, id uuid.UUID) (Meter, error)
 	// Настройки организации (FR-14.1).
 	GetOrganizationSettings(ctx context.Context) (OrganizationSetting, error)
@@ -387,6 +397,7 @@ type Querier interface {
 	MainDebtDueBy(ctx context.Context, arg MainDebtDueByParams) (int64, error)
 	MarkEmailAttemptFailed(ctx context.Context, arg MarkEmailAttemptFailedParams) error
 	MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) error
+	MarkFilesDeleted(ctx context.Context, arg MarkFilesDeletedParams) error
 	// Договоры (кроме черновиков) с данными нанимателя для сопоставления строк выписки (05 разд. 15.1).
 	MatchContracts(ctx context.Context) ([]MatchContractsRow, error)
 	// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
@@ -411,6 +422,8 @@ type Querier interface {
 	OpenUnderpayment(ctx context.Context, contractID *uuid.UUID) (Discrepancy, error)
 	// Открытые недоплаты для billing.penalties_daily: остаток долга со сроком не позже даты обнаружения.
 	OpenUnderpaymentsAll(ctx context.Context) ([]OpenUnderpaymentsAllRow, error)
+	// Файлы, не привязанные ни к одной записи, загруженные раньше момента before.
+	OrphanFiles(ctx context.Context, before time.Time) ([]OrphanFilesRow, error)
 	// Начисления платы и ЖКУ со сроком в периоде (случаи просрочки, 11 разд. 4) и льгота договора.
 	OverdueCandidates(ctx context.Context, arg OverdueCandidatesParams) ([]OverdueCandidatesRow, error)
 	// Просроченные начисления основного долга: срок + льгота договора раньше @today.
@@ -473,6 +486,9 @@ type Querier interface {
 	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
 	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
+	// Наниматели без договоров draft/active/extended, у которых последний фактический конец договора + срок хранения
+	// раньше сегодняшнего дня; ещё не обезличенные.
+	RetentionCandidates(ctx context.Context, arg RetentionCandidatesParams) ([]uuid.UUID, error)
 	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
 	// Неистёкшая начатая оплата с той же суммой и составом (06 разд. 15, POST /cabinet/payments).
@@ -494,6 +510,7 @@ type Querier interface {
 	SetBankLineMatched(ctx context.Context, arg SetBankLineMatchedParams) error
 	SetBankStatementStats(ctx context.Context, arg SetBankStatementStatsParams) error
 	SetChargeAmount(ctx context.Context, arg SetChargeAmountParams) error
+	SetDemoClockOffset(ctx context.Context, offsetSeconds int64) error
 	SetDiscrepancyAmount(ctx context.Context, arg SetDiscrepancyAmountParams) error
 	SetDocumentSignedScan(ctx context.Context, arg SetDocumentSignedScanParams) (Document, error)
 	SetDocumentVisibility(ctx context.Context, arg SetDocumentVisibilityParams) (Document, error)
@@ -550,6 +567,10 @@ type Querier interface {
 	// Личный кабинет нанимателя (FR-13, 06 разд. 15): только договоры нанимателя пользователя.
 	// Договоры нанимателя (без черновиков): сначала действующие, затем по дате начала, новые первыми.
 	TenantContracts(ctx context.Context, tenantID uuid.UUID) ([]TenantContractsRow, error)
+	// Сроки хранения и обезличивание ПДн (NFR-Sec-05, 12 разд. 6), служебная очистка (07, maintenance.cleanup).
+	TenantHasLiveContracts(ctx context.Context, tenantID uuid.UUID) (bool, error)
+	// Файлы с ПДн нанимателя: PDF документов его договоров и бланков согласия, сканы подписанных экземпляров и согласий.
+	TenantPdnFiles(ctx context.Context, tenantID uuid.UUID) ([]TenantPdnFilesRow, error)
 	TerminateContract(ctx context.Context, arg TerminateContractParams) (Contract, error)
 	TouchRequest(ctx context.Context, arg TouchRequestParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) error

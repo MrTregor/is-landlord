@@ -18,6 +18,7 @@ import (
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
+	"landlord/backend/internal/dev"
 	"landlord/backend/internal/document"
 	"landlord/backend/internal/expense"
 	"landlord/backend/internal/file"
@@ -63,6 +64,8 @@ type Deps struct {
 	Auth    Authenticator
 	Policy  PolicyChecker
 	Modules Modules
+	// NoRateLimit — без ограничения частоты запросов (встроенный сервер cli seed, доступен только своему процессу).
+	NoRateLimit bool
 }
 
 // Modules — обработчики модулей; их методы перекрывают заглушки 501.
@@ -88,6 +91,7 @@ type Modules struct {
 	Requests  *maintenance.Handler
 	Expenses  *expense.Handler
 	Reports   *report.Handler
+	Dev       *dev.Handler
 }
 
 // unimplemented опускает заглушки на второй уровень встраивания: методы модулей,
@@ -117,6 +121,7 @@ type (
 	requestsHandler  = maintenance.Handler
 	expensesHandler  = expense.Handler
 	reportsHandler   = report.Handler
+	devHandler       = dev.Handler
 )
 
 // Server реализует api.StrictServerInterface. Методы, ещё не реализованные модулями, отвечают 501.
@@ -143,6 +148,7 @@ type Server struct {
 	*requestsHandler
 	*expensesHandler
 	*reportsHandler
+	*devHandler
 
 	deps     Deps
 	dbPinger Pinger
@@ -161,7 +167,8 @@ func NewServer(deps Deps) *Server {
 		contractHandler: m.Contract, calendarHandler: m.Calendar, documentHandler: m.Document, billingHandler: m.Billing,
 		paymentHandler: m.Payments, cabinetHandler: m.Cabinet, jobsHandler: m.Jobs,
 		fiscalHandler: m.Fiscal, reconcileHandler: m.Reconcile, mailingHandler: m.Mailing, requestsHandler: m.Requests, expensesHandler: m.Expenses, reportsHandler: m.Reports,
-		deps: deps, auth: deps.Auth, policy: deps.Policy,
+		devHandler: m.Dev,
+		deps:       deps, auth: deps.Auth, policy: deps.Policy,
 	}
 	if deps.DB != nil {
 		s.dbPinger = deps.DB
@@ -185,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 		s.writeError(w, req, apperr.BadRequest("Метод не поддерживается для этого адреса"))
 	})
 
+	s.mountDocs(r)
 	strict := api.NewStrictHandlerWithOptions(s, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
 			s.writeError(w, req, apperr.BadRequest("Неверный формат запроса: "+err.Error()))

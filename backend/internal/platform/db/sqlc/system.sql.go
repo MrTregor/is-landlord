@@ -7,6 +7,8 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const getDemoClockOffset = `-- name: GetDemoClockOffset :one
@@ -21,6 +23,27 @@ func (q *Queries) GetDemoClockOffset(ctx context.Context) (int64, error) {
 	var offset_seconds int64
 	err := row.Scan(&offset_seconds)
 	return offset_seconds, err
+}
+
+const getJobRun = `-- name: GetJobRun :one
+SELECT id, job_name, business_date, trigger, started_at, finished_at, status, stats, error_text FROM job_runs WHERE id = $1
+`
+
+func (q *Queries) GetJobRun(ctx context.Context, id uuid.UUID) (JobRun, error) {
+	row := q.db.QueryRow(ctx, getJobRun, id)
+	var i JobRun
+	err := row.Scan(
+		&i.ID,
+		&i.JobName,
+		&i.BusinessDate,
+		&i.Trigger,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.Stats,
+		&i.ErrorText,
+	)
+	return i, err
 }
 
 const getOrganizationShortName = `-- name: GetOrganizationShortName :one
@@ -55,4 +78,14 @@ func (q *Queries) LastJobRun(ctx context.Context, jobName string) (JobRun, error
 		&i.ErrorText,
 	)
 	return i, err
+}
+
+const setDemoClockOffset = `-- name: SetDemoClockOffset :exec
+INSERT INTO demo_clock (id, offset_seconds) VALUES (1, $1)
+ON CONFLICT (id) DO UPDATE SET offset_seconds = EXCLUDED.offset_seconds
+`
+
+func (q *Queries) SetDemoClockOffset(ctx context.Context, offsetSeconds int64) error {
+	_, err := q.db.Exec(ctx, setDemoClockOffset, offsetSeconds)
+	return err
 }

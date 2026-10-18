@@ -537,3 +537,8 @@ func (s *Service) validToken(ctx context.Context, token, purpose string) (sqlc.G
 func (s *Service) link(path string) string {
 	return strings.TrimRight(s.cfg.AppPublicURL, "/") + path
 }
+
+// RandomPasswordHash — хеш случайного пароля (обезличенная учётная запись: войти по ней нельзя).
+func (s *Service) RandomPasswordHash() (string, error) {
+	return crypto.HashPassword(crypto.NewToken(), s.argon)
+}

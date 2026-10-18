@@ -16,9 +16,10 @@ import (
 
 	"landlord/backend/internal/app"
 	"landlord/backend/internal/config"
-	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
+	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/logging"
+	"landlord/backend/internal/seed"
 )
 
 const usage = `Использование: cli <команда>
@@ -29,8 +30,9 @@ const usage = `Использование: cli <команда>
   migrate status                                  состояние миграций
   user create-owner --email <e-mail> --name <имя> создать собственника: приглашение по e-mail и ссылка в выводе
   audit verify                                    проверить цепочку хешей журнала действий
-
-Команды seed, jobs, docs добавляются на следующих этапах (docs/spec/19 План реализации.md).
+  seed --demo [--load]                            очистить бизнес-данные и загрузить демо (--load — ещё 100 объектов
+                                                  для нагрузочного теста), docs/spec/17 Демо-данные.md
+  jobs run <имя>                                  выполнить ежедневную задачу за сегодня (например, billing.rent_daily)
 `
 
 func main() {
@@ -81,6 +83,14 @@ func run(args []string, out io.Writer) error {
 			return errors.New("укажите audit verify")
 		}
 		return auditVerify(ctx, out)
+	case "seed":
+		return runSeed(ctx, args[1:], out)
+	case "jobs":
+		if len(args) != 3 || args[1] != "run" {
+			fmt.Fprint(out, usage)
+			return errors.New("укажите jobs run <имя>")
+		}
+		return runJob(ctx, args[2], out)
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usage)
 		return nil
@@ -100,7 +110,7 @@ func openApp(ctx context.Context) (*app.App, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	a, err := app.New(cfg, log, clock.NewReal(cfg.Location), database, app.Options{})
+	a, err := app.New(cfg, log, app.NewClock(cfg, database), database, app.Options{})
 	if err != nil {
 		database.Close()
 		return nil, nil, err
@@ -148,4 +158,43 @@ func auditVerify(ctx context.Context, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "Цепочка записей не нарушена, проверено %d записей\n", res.Checked)
 	return nil
+}
+
+// runSeed — cli seed --demo [--load] (17 Демо-данные): очистка и загрузка заново, повторный запуск идемпотентен.
+func runSeed(ctx context.Context, args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("seed", flag.ContinueOnError)
+	demo := fs.Bool("demo", false, "загрузить демо-данные")
+	load := fs.Bool("load", false, "добавить данные нагрузочного теста")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*demo {
+		return errors.New("укажите seed --demo")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	log := logging.New(os.Stderr, slog.LevelWarn, "cli")
+	return seed.Run(ctx, cfg, log, out, seed.Options{Load: *load})
+}
+
+// runJob — cli jobs run <имя>: ежедневная задача за сегодня синхронно (trigger = manual).
+func runJob(ctx context.Context, name string, out io.Writer) error {
+	a, closeDB, err := openApp(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	for _, r := range a.DailyRunners() {
+		if r.Name != name {
+			continue
+		}
+		st, err := r.Run(ctx, jobs.DailyArgs{BusinessDate: a.Clock.Today(), Trigger: jobs.TriggerManual})
+		if st != nil {
+			fmt.Fprintf(out, "%s за %s: %s\n", name, a.Clock.Today().Format(), st.JSON())
+		}
+		return err
+	}
+	return fmt.Errorf("неизвестная ежедневная задача %q", name)
 }

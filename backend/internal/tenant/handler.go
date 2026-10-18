@@ -12,6 +12,7 @@ import (
 	"landlord/backend/internal/auth"
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/platform/apiconv"
+	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
 	"landlord/backend/internal/platform/names"
@@ -274,4 +275,20 @@ func (h *Handler) InviteTenant(ctx context.Context, req api.InviteTenantRequestO
 		return nil, err
 	}
 	return api.InviteTenant201JSONResponse(auth.UserDTO(u)), nil
+}
+
+// AnonymizeTenant — POST /tenants/{id}/anonymize (NFR-Sec-05, 12 разд. 6).
+func (h *Handler) AnonymizeTenant(ctx context.Context, req api.AnonymizeTenantRequestObject) (api.AnonymizeTenantResponseObject, error) {
+	if !req.Body.Confirm {
+		return nil, apperr.Validation(apperr.FieldError{Field: "confirm", Message: "Подтвердите обезличивание"})
+	}
+	t, err := h.svc.Anonymize(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	d, err := h.detail(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return api.AnonymizeTenant200JSONResponse(d), nil
 }

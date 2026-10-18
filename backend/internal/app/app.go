@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -14,10 +15,12 @@ import (
 	"landlord/backend/internal/calendar"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/contract"
+	"landlord/backend/internal/dev"
 	"landlord/backend/internal/document"
 	"landlord/backend/internal/expense"
 	"landlord/backend/internal/file"
 	"landlord/backend/internal/fiscal"
+	"landlord/backend/internal/housekeeping"
 	httpserver "landlord/backend/internal/http"
 	"landlord/backend/internal/jobrun"
 	"landlord/backend/internal/maintenance"
@@ -68,6 +71,9 @@ type App struct {
 	Requests  *maintenance.Service
 	Expenses  *expense.Service
 	Reports   *report.Service
+	Cleanup   *housekeeping.Service
+
+	noRateLimit bool
 }
 
 // Options — необязательные параметры (тесты).
@@ -78,6 +84,8 @@ type Options struct {
 	PDF pdf.Converter
 	// Kassa — API кассы; по умолчанию — АТОЛ Онлайн по адресу ATOL_API_URL.
 	Kassa fiscal.Sender
+	// NoRateLimit — HTTP API без ограничения частоты (встроенный сервер cli seed).
+	NoRateLimit bool
 }
 
 // New собирает сервисы. Клиент River — только для постановки задач (InsertTx).
@@ -90,7 +98,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	if opt.Argon != nil {
 		argon = *opt.Argon
 	}
-	a := &App{Config: cfg, Log: log, Clock: clk, DB: database, Jobs: client}
+	a := &App{Config: cfg, Log: log, Clock: clk, DB: database, Jobs: client, noRateLimit: opt.NoRateLimit}
 	a.Audit = audit.NewService(database, clk)
 	a.Notify = notify.NewService(cfg, clk, client)
 	a.Settings = settings.NewService(database, a.Audit, clk)
@@ -127,6 +135,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Expenses = expense.NewService(database, a.Audit, clk, a.Billing, a.Payments)
 	a.Reports = report.NewService(database, clk, a.Settings, a.Calendar)
 	a.Mailing = mailing.NewService(database, a.Audit, clk, a.Notify, a.Settings, a.Calendar)
+	a.Cleanup = housekeeping.NewService(database, clk, a.Audit, a.Files.Store())
 	return a, nil
 }
 
@@ -134,7 +143,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 	return httpserver.NewServer(httpserver.Deps{
 		Config: a.Config, Log: a.Log, Clock: a.Clock, DB: a.DB, Gotenberg: gotenberg,
-		Auth: a.Auth, Policy: a.Settings,
+		Auth: a.Auth, Policy: a.Settings, NoRateLimit: a.noRateLimit,
 		Modules: httpserver.Modules{
 			Auth:     auth.NewHandler(a.Auth),
 			Users:    user.NewHandler(a.Users),
@@ -153,7 +162,8 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 				Payments: a.Payments, Documents: a.Documents, Contracts: a.Contract, Meters: a.Meters, Tenants: a.Tenants,
 				Settings: a.Settings,
 			}),
-			Jobs:      jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...)),
+			Jobs:      jobrun.NewHandler(a.DB, a.Jobs, a.Clock, a.Audit, append(Daily(), Periodic()...), a.Config.BackupsDir),
+			Dev:       dev.NewHandler(a.Config.IsDemo(), a.DB, a.Clock, a.Audit, a.DailyRunners()),
 			Fiscal:    fiscal.NewHandler(a.Fiscal),
 			Reconcile: reconciliation.NewHandler(a.Reconcile),
 			Mailing:   mailing.NewHandler(a.Mailing),
@@ -166,8 +176,8 @@ func (a *App) Server(gotenberg httpserver.HealthChecker) *httpserver.Server {
 
 // Daily — реализованные ежедневные задачи в порядке выполнения (07 Фоновые задачи).
 func Daily() []jobs.Daily {
-	return append([]jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily()},
-		mailing.Schedules()...)
+	return append([]jobs.Daily{contract.Daily(), billing.RentDaily(), billing.PenaltiesDaily(), contract.IndexationDaily(),
+		tenant.RetentionDaily(), housekeeping.CleanupDaily()}, mailing.Schedules()...)
 }
 
 // Periodic — реализованные плановые задачи не ежедневного расписания (07 Фоновые задачи).
@@ -183,6 +193,8 @@ func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 	jobs.Add(reg, &billing.RentWorker{Svc: a.Billing})
 	jobs.Add(reg, &billing.PenaltiesWorker{Svc: a.Billing})
 	jobs.Add(reg, &contract.IndexationWorker{Svc: a.Contract})
+	jobs.Add(reg, &tenant.RetentionWorker{Svc: a.Tenants})
+	jobs.Add(reg, &housekeeping.CleanupWorker{Svc: a.Cleanup})
 	jobs.Add(reg, &payment.ReceiptWorker{Svc: a.Payments})
 	jobs.Add(reg, &payment.NotificationWorker{Svc: a.Payments})
 	jobs.Add(reg, &payment.ExpireWorker{Svc: a.Payments})
@@ -197,4 +209,35 @@ func (a *App) Workers(sender mailer.Sender) *jobs.Registry {
 		reg.AddDaily(d, a.Clock)
 	}
 	return reg
+}
+
+// DailyRunners — синхронный запуск ежедневных задач по порядку 07 Фоновые задачи (POST /dev/run-daily).
+func (a *App) DailyRunners() []jobs.Runner {
+	return []jobs.Runner{
+		{Name: contract.DailyJobName, Run: a.Contract.RunDaily},
+		{Name: billing.RentJobName, Run: a.Billing.RunRentDaily},
+		{Name: billing.PenaltiesJobName, Run: a.Billing.RunPenaltiesDaily},
+		{Name: contract.IndexationJobName, Run: a.Contract.RunIndexationDaily},
+		{Name: tenant.RetentionJobName, Run: a.Tenants.RunRetentionDaily},
+		{Name: housekeeping.CleanupJobName, Run: a.Cleanup.RunCleanup},
+		{Name: mailing.DigestJobName, Run: a.Mailing.RunOwnerDigest},
+		{Name: mailing.RemindersJobName, Run: a.Mailing.RunPaymentReminders},
+		{Name: mailing.ContractEndName, Run: a.Mailing.RunContractEnd},
+		{Name: mailing.ReadingsJobName, Run: a.Mailing.RunReadingsReminder},
+	}
+}
+
+// NewClock — часы процесса: в режиме demo с DEMO_CLOCK_ENABLED — сдвинутое время из demo_clock (общее для server и
+// worker), иначе реальное.
+func NewClock(cfg *config.Config, database *db.DB) clock.Clock {
+	if !cfg.IsDemo() || !cfg.DemoClockEnabled {
+		return clock.NewReal(cfg.Location)
+	}
+	return clock.NewOffset(cfg.Location, func(ctx context.Context) (int64, error) {
+		s, err := database.Queries().GetDemoClockOffset(ctx)
+		if db.IsNoRows(err) {
+			return 0, nil
+		}
+		return s, err
+	})
 }

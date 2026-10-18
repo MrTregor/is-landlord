@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"landlord/backend/internal/api"
 	"landlord/backend/internal/config"
 	"landlord/backend/internal/platform/apperr"
 	"landlord/backend/internal/platform/clock"
@@ -101,18 +102,11 @@ func TestReadyz(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// Заглушки этапа M0: каждый описанный в API метод отвечает 501 в формате problem+json.
+// Заглушки stubgen (M0) отвечают 501; с этапа M14 все методы реализованы модулями, поэтому проверяется сама заглушка.
 func TestStubsReturnNotImplemented(t *testing.T) {
-	h := newTestServer(nil, nil).Handler()
-	for _, path := range []string{"/api/v1/settings/backups", "/api/v1/dev/clock"} {
-		rec := doAs(t, h, http.MethodGet, path, sessionFor(path), "")
-		assert.Equal(t, http.StatusNotImplemented, rec.Code, path)
-		assert.Equal(t, "application/problem+json; charset=utf-8", rec.Header().Get("Content-Type"))
-		var p apperr.Problem
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
-		assert.Equal(t, apperr.CodeNotImplemented, p.Code)
-		assert.Equal(t, rec.Header().Get("X-Request-Id"), p.RequestID)
-	}
+	_, err := api.StrictUnimplemented{}.ListBackups(context.Background(), api.ListBackupsRequestObject{})
+	assert.Equal(t, apperr.CodeNotImplemented, apperr.From(err).Code)
+	assert.Equal(t, http.StatusNotImplemented, apperr.From(err).Status)
 }
 
 func TestUnknownPathIsProblem404(t *testing.T) {
@@ -135,13 +129,6 @@ func TestRecoverWritesProblem(t *testing.T) {
 	rec := do(t, RequestID(h), http.MethodGet, "/")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Внутренняя ошибка сервера. Код запроса: ")
-}
-
-func sessionFor(path string) string {
-	if len(path) > len("/api/v1/cabinet") && path[:len("/api/v1/cabinet")] == "/api/v1/cabinet" {
-		return "tenant"
-	}
-	return "owner"
 }
 
 // Права по ролям проверяются промежуточным обработчиком (NFR-Sec-02, 12 Безопасность и ПДн, раздел 3).
@@ -227,4 +214,23 @@ func TestOpenAPIValidation_NFR_Comp_02(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
 	assert.Equal(t, "Недопустимое значение поля «status»", p.Detail)
+}
+
+// Страница описания API (NFR-Comp-02): собственнику в dev/demo, нанимателю — 403, в prod — нет.
+func TestDocsPage_NFR_Comp_02(t *testing.T) {
+	h := newTestServer(nil, nil).Handler()
+	rec := doAs(t, h, http.MethodGet, "/api/v1/docs", "owner", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "/api/v1/docs/redoc.js")
+	rec = doAs(t, h, http.MethodGet, "/api/v1/docs/redoc.js", "owner", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Greater(t, rec.Body.Len(), 100000)
+	rec = doAs(t, h, http.MethodGet, "/api/v1/docs/openapi.json", "owner", "")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"openapi"`)
+	assert.Equal(t, http.StatusForbidden, doAs(t, h, http.MethodGet, "/api/v1/docs", "tenant", "").Code)
+
+	prod := newTestServer(nil, nil)
+	prod.deps.Config = &config.Config{AppEnv: config.EnvProd, AppName: "Наймодатель"}
+	assert.Equal(t, http.StatusNotFound, doAs(t, prod.Handler(), http.MethodGet, "/api/v1/docs", "owner", "").Code)
 }

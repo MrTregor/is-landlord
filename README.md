@@ -30,7 +30,10 @@ make dev
 | http://localhost:8025 | Mailpit (перехваченные письма) |
 | http://localhost:8081, http://localhost:8082 | Эмуляторы Т-Банка и АТОЛ |
 
-Учётные записи демо-данных появятся с командой `make seed` (этап M14).
+`make seed` очищает бизнес-данные и загружает демо (docs/spec/17 Демо-данные.md); повторный запуск загружает заново.
+Учётные записи демо: собственник `owner@landlord.local` / `Demo-2026-owner`; наниматели `kuznetsov@landlord.local`,
+`romashka@landlord.local`, `smirnova@landlord.local` / `Demo-2026-tenant`; `lebedev@landlord.local` — приглашён
+(письмо в Mailpit). Сдвиг даты системы — только при `APP_ENV=demo` и `DEMO_CLOCK_ENABLED=true` (Настройки → Служебное).
 
 ## Команды
 | Команда | Действие |

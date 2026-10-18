@@ -2,6 +2,7 @@
 // Карточка нанимателя (14 Экраны собственника, раздел 3.3).
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import { uploadFile } from '@/api/queries/properties'
@@ -35,6 +36,30 @@ const id = computed(() => route.params.id as string)
 const tenant = useTenant(id)
 const m = useTenantMutations(id)
 const t = computed(() => tenant.data.value)
+
+const confirm = useConfirm()
+const hasLiveContracts = computed(() =>
+  (t.value?.contracts ?? []).some((c) => c.status === 'draft' || c.status === 'active' || c.status === 'extended'),
+)
+
+/** Обезличивание (12 разд. 6) — необратимо, с подтверждением. */
+function anonymize() {
+  confirm.require({
+    header: 'Обезличить нанимателя?',
+    message: 'Персональные данные будут необратимо удалены, документы с ПДн — удалены. Денежные данные сохранятся.',
+    icon: 'pi pi-exclamation-triangle',
+    rejectProps: { label: 'Отмена', outlined: true },
+    acceptProps: { label: 'Обезличить', severity: 'danger' },
+    accept: async () => {
+      try {
+        await m.anonymize.mutateAsync()
+        toast.add({ severity: 'success', summary: 'Наниматель обезличен', life: 3000 })
+      } catch (err) {
+        fail(err)
+      }
+    },
+  })
+}
 
 function fail(err: unknown) {
   toast.add({ severity: 'error', summary: 'Ошибка', detail: parseProblem(err).message, life: 6000 })
@@ -166,12 +191,15 @@ const canInvite = computed(() => !!t.value && !t.value.user && !!t.value.email &
             @click="resend"
           />
           <Button
+            v-if="!t.anonymizedAt"
             label="Обезличить"
             icon="pi pi-eraser"
             severity="danger"
             outlined
-            disabled
-            title="Обезличивание появится на этапе M14"
+            :disabled="hasLiveContracts"
+            :title="hasLiveContracts ? 'Только без договоров «Черновик», «Действует», «Продлён»' : undefined"
+            :loading="m.anonymize.isPending.value"
+            @click="anonymize"
           />
         </template>
       </PageHeader>

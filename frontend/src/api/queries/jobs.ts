@@ -31,3 +31,32 @@ export function useRunJob() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }
+
+/** Резервные копии (только чтение каталога). */
+export function useBackups() {
+  return useQuery({ queryKey: ['jobs', 'backups'], queryFn: () => unwrap(api.GET('/settings/backups')) })
+}
+
+/** Дата системы в режиме demo (тот же ключ, что у полосы демо-режима). */
+export function useDevClock(enabled: MaybeRefOrGetter<boolean>) {
+  return useQuery({
+    queryKey: ['dev', 'clock'],
+    queryFn: () => unwrap(api.GET('/dev/clock')),
+    enabled: () => toValue(enabled),
+    retry: false,
+  })
+}
+
+/** Сдвиг даты и «Выполнить ежедневные задачи»: после них устаревает всё — сбрасываются все запросы. */
+export function useDevMutations() {
+  const qc = useQueryClient()
+  const all = () => qc.invalidateQueries()
+  return {
+    set: useMutation({
+      mutationFn: (today: string) => unwrap(api.PUT('/dev/clock', { body: { today } })),
+      onSuccess: all,
+    }),
+    reset: useMutation({ mutationFn: () => unwrap(api.DELETE('/dev/clock')), onSuccess: all }),
+    runDaily: useMutation({ mutationFn: () => unwrap(api.POST('/dev/run-daily')), onSuccess: all }),
+  }
+}

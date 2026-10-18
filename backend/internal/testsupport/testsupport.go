@@ -147,6 +147,21 @@ func Moscow() *time.Location {
 // NewEnv собирает приложение с часами на дату today (полдень по Москве).
 func NewEnv(t testing.TB, today string) *Env {
 	t.Helper()
+	clk := clock.NewFixedDate(date.MustParse(today), Moscow())
+	return newEnv(t, func(*config.Config) {}, func(*config.Config, *db.DB) clock.Clock { return clk }, clk)
+}
+
+// NewDemoEnv — приложение в режиме demo со сдвигаемыми часами (demo_clock, как в server и worker); Env.Clock = nil,
+// backupsDir — каталог резервных копий.
+func NewDemoEnv(t testing.TB, backupsDir string) *Env {
+	t.Helper()
+	return newEnv(t, func(c *config.Config) {
+		c.AppEnv, c.DemoClockEnabled, c.BackupsDir = config.EnvDemo, true, backupsDir
+	}, app.NewClock, nil)
+}
+
+func newEnv(t testing.TB, tune func(*config.Config), newClock func(*config.Config, *db.DB) clock.Clock, fixed *clock.Fixed) *Env {
+	t.Helper()
 	ctx := context.Background()
 	cfg := &config.Config{
 		AppEnv: config.EnvDev, AppName: "Наймодатель", AppPublicURL: "http://localhost:5173",
@@ -166,7 +181,8 @@ func NewEnv(t testing.TB, today string) *Env {
 		t.Fatal(err)
 	}
 	t.Cleanup(database.Close)
-	clk := clock.NewFixedDate(date.MustParse(today), Moscow())
+	tune(cfg)
+	clk := newClock(cfg, database)
 	log := slog.New(slog.NewTextHandler(tWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	fake := &FakePDF{}
 	a, err := app.New(cfg, log, clk, database, app.Options{Argon: &FastArgon, PDF: fake})
@@ -175,7 +191,7 @@ func NewEnv(t testing.TB, today string) *Env {
 	}
 	srv := httptest.NewServer(a.Server(okGotenberg{}).Handler())
 	t.Cleanup(srv.Close)
-	return &Env{App: a, Clock: clk, Server: srv, PDF: fake, Bank: bank, Atol: kassa}
+	return &Env{App: a, Clock: fixed, Server: srv, PDF: fake, Bank: bank, Atol: kassa}
 }
 
 type okGotenberg struct{}

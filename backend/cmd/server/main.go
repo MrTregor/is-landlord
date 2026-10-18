@@ -14,7 +14,6 @@ import (
 
 	"landlord/backend/internal/app"
 	"landlord/backend/internal/config"
-	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/logging"
 	"landlord/backend/internal/platform/pdf"
@@ -44,7 +43,7 @@ func run() error {
 	}
 	defer database.Close()
 
-	a, err := app.New(cfg, log, clock.NewReal(cfg.Location), database, app.Options{})
+	a, err := app.New(cfg, log, app.NewClock(cfg, database), database, app.Options{})
 	if err != nil {
 		return err
 	}

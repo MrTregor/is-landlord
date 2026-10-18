@@ -44,6 +44,10 @@ export function useTenantMutations(id: MaybeRefOrGetter<string>) {
       mutationFn: (body: S['ConsentInput']) => unwrap(api.POST('/tenants/{id}/consents', { ...path(), body })),
       onSuccess: refresh,
     }),
+    anonymize: useMutation({
+      mutationFn: () => unwrap(api.POST('/tenants/{id}/anonymize', { ...path(), body: { confirm: true } })),
+      onSuccess: () => qc.invalidateQueries(),
+    }),
     revokeConsent: useMutation({
       mutationFn: (v: { consentId: string; body: S['ConsentRevokeInput'] }) =>
         unwrap(

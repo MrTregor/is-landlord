@@ -49,6 +49,12 @@ type Daily struct {
 	Args func(DailyArgs) river.JobArgs
 }
 
+// Runner — синхронный запуск ежедневной задачи (демо: «Выполнить ежедневные задачи»).
+type Runner struct {
+	Name string
+	Run  func(ctx context.Context, args DailyArgs) (*Stats, error)
+}
+
 // DailySchedule — расписание «каждый день в HH:MM» в часовом поясе loc (River PeriodicSchedule).
 type DailySchedule struct {
 	Hour, Minute int

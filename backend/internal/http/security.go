@@ -122,11 +122,11 @@ func (s *Server) Security(next http.Handler) http.Handler {
 		if actor != nil {
 			key = "s:" + actor.SessionID.String()
 		}
-		if !general.allow(key) {
+		if !s.deps.NoRateLimit && !general.allow(key) {
 			s.writeError(w, r, apperr.TooManyRequests(apperr.CodeRateLimited, "Слишком много запросов. Повторите через минуту", time.Minute))
 			return
 		}
-		if r.Method == http.MethodPost && path == "/files" && !uploads.allow(key) {
+		if !s.deps.NoRateLimit && r.Method == http.MethodPost && path == "/files" && !uploads.allow(key) {
 			s.writeError(w, r, apperr.TooManyRequests(apperr.CodeRateLimited, "Слишком много загрузок файлов. Повторите через минуту", time.Minute))
 			return
 		}
