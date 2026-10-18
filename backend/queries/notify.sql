@@ -101,10 +101,16 @@ WHERE status IN ('active', 'extended') AND end_date >= @today::date AND end_date
 ORDER BY end_date, number;
 
 -- name: MeterContracts :many
--- Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
-SELECT id, number FROM contracts
-WHERE status IN ('active', 'extended') AND utilities_mode = 'meters' AND start_date <= @today::date
-ORDER BY number;
+-- Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях), у которых за месяц не по всем счётчикам
+-- объекта переданы или приняты показания (№ 79).
+SELECT c.id, c.number FROM contracts c
+WHERE c.status IN ('active', 'extended') AND c.utilities_mode = 'meters' AND c.start_date <= @today::date
+  AND EXISTS (SELECT 1 FROM meters m
+              WHERE m.property_id = c.property_id AND m.archived_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM meter_readings r
+                                WHERE r.meter_id = m.id AND r.period_month = @month::date
+                                  AND r.source IN ('owner', 'tenant') AND r.status IN ('submitted', 'accepted')))
+ORDER BY c.number;
 
 -- Утренняя сводка собственнику
 
@@ -127,6 +133,10 @@ WHERE status = 'open' GROUP BY kind ORDER BY kind;
 
 -- name: DigestFiscalErrors :one
 SELECT count(*)::bigint FROM fiscal_receipts WHERE status IN ('fail', 'manual_required');
+
+-- name: DigestQueuedFiscal :one
+-- Чеки в очереди дольше часа (касса недоступна, № 63) — по часам сервера БД, как технические интервалы.
+SELECT count(*)::bigint FROM fiscal_receipts WHERE status = 'queued' AND updated_at < now() - interval '1 hour';
 
 -- name: DigestFailedJobs :many
 -- Плановые задачи, завершившиеся с ошибкой за вчера и сегодня (бизнес-дата).

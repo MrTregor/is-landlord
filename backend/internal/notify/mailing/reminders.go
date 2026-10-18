@@ -286,7 +286,8 @@ func (s *Service) RunContractEnd(ctx context.Context, args jobs.DailyArgs) (*job
 // ---------------------------------------------------------------- notify.readings_reminder
 
 // RunReadingsReminder — с readings_reminder_day каждого месяца — напоминание передать показания за месяц
-// (договоры с ЖКУ по счётчикам), одно письмо на договор и месяц; окно приёма — по 5-е число следующего месяца
+// (договоры с ЖКУ по счётчикам), одно письмо на договор и месяц; не отправляется, если показания за месяц по всем
+// счётчикам уже переданы или приняты (№ 79); окно приёма — по 5-е число следующего месяца
 // (05 разд. 6.2).
 func (s *Service) RunReadingsReminder(ctx context.Context, args jobs.DailyArgs) (*jobs.Stats, error) {
 	today := businessDate(args, s.clock.Today())
@@ -301,7 +302,7 @@ func (s *Service) RunReadingsReminder(ctx context.Context, args jobs.DailyArgs) 
 		}
 		month := today.FirstOfMonth()
 		windowTo := month.AddMonths(1).AddDays(4)
-		list, err := q.MeterContracts(ctx, today)
+		list, err := q.MeterContracts(ctx, sqlc.MeterContractsParams{Today: today, Month: month})
 		if err != nil {
 			return err
 		}

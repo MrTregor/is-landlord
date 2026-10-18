@@ -172,11 +172,17 @@ func (s *Service) Utilities(ctx context.Context, tx *db.Tx, c sqlc.Contract, mon
 		return nil, err
 	}
 	t := calc.TermsFor(TermsOf(terms), date.Max(c.StartDate, month))
-	fixed := t.UtilitiesFixedKop
+	// Фиксированная часть за неполный месяц (месяц начала) — пропорционально дням пользования, как в итоговом
+	// начислении по акту возврата (№ 31).
+	fixed := money.Kop(0)
+	start, end := month, month.LastOfMonth()
+	if p, ok := calc.PeriodOf(c.StartDate, ActualEnd(c), month); ok {
+		fixed = calc.ProRate(t.UtilitiesFixedKop, p)
+		start = date.Max(c.StartDate, month)
+	}
 	total := calc.UtilitiesTotal(lines, fixed)
 	today := s.clock.Today()
 	due := calc.UtilitiesDue(month, t.PaymentDay, today)
-	start, end := month, month.LastOfMonth()
 	id, err := tx.Q.InsertAutoCharge(ctx, sqlc.InsertAutoChargeParams{
 		ContractID: c.ID, Kind: KindUtilities, Title: "Компенсация ЖКУ, " + monthName, PeriodMonth: &month,
 		PeriodStart: &start, PeriodEnd: &end, DueDate: &due, AmountKop: int64(total), Status: "open",

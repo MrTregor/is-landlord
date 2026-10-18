@@ -261,6 +261,18 @@ func (q *Queries) DigestOverdue(ctx context.Context, today date.Date) ([]DigestO
 	return items, nil
 }
 
+const digestQueuedFiscal = `-- name: DigestQueuedFiscal :one
+SELECT count(*)::bigint FROM fiscal_receipts WHERE status = 'queued' AND updated_at < now() - interval '1 hour'
+`
+
+// Чеки в очереди дольше часа (касса недоступна, № 63) — по часам сервера БД, как технические интервалы.
+func (q *Queries) DigestQueuedFiscal(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, digestQueuedFiscal)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const dueMainCharges = `-- name: DueMainCharges :many
 SELECT ch.id, ch.contract_id, ch.title, ch.due_date::date AS due_date, (ch.amount_kop - ch.paid_kop)::bigint AS outstanding_kop
 FROM charges ch JOIN contracts c ON c.id = ch.contract_id
@@ -604,19 +616,30 @@ func (q *Queries) MarkEmailSent(ctx context.Context, arg MarkEmailSentParams) er
 }
 
 const meterContracts = `-- name: MeterContracts :many
-SELECT id, number FROM contracts
-WHERE status IN ('active', 'extended') AND utilities_mode = 'meters' AND start_date <= $1::date
-ORDER BY number
+SELECT c.id, c.number FROM contracts c
+WHERE c.status IN ('active', 'extended') AND c.utilities_mode = 'meters' AND c.start_date <= $1::date
+  AND EXISTS (SELECT 1 FROM meters m
+              WHERE m.property_id = c.property_id AND m.archived_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM meter_readings r
+                                WHERE r.meter_id = m.id AND r.period_month = $2::date
+                                  AND r.source IN ('owner', 'tenant') AND r.status IN ('submitted', 'accepted')))
+ORDER BY c.number
 `
+
+type MeterContractsParams struct {
+	Today date.Date
+	Month date.Date
+}
 
 type MeterContractsRow struct {
 	ID     uuid.UUID
 	Number string
 }
 
-// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
-func (q *Queries) MeterContracts(ctx context.Context, today date.Date) ([]MeterContractsRow, error) {
-	rows, err := q.db.Query(ctx, meterContracts, today)
+// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях), у которых за месяц не по всем счётчикам
+// объекта переданы или приняты показания (№ 79).
+func (q *Queries) MeterContracts(ctx context.Context, arg MeterContractsParams) ([]MeterContractsRow, error) {
+	rows, err := q.db.Query(ctx, meterContracts, arg.Today, arg.Month)
 	if err != nil {
 		return nil, err
 	}

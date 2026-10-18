@@ -783,6 +783,13 @@ type Tenant struct {
 	UpdatedAt    time.Time
 }
 
+type TplConsent struct {
+	ID       uuid.UUID
+	Kind     string
+	Name     string
+	BodyHtml string
+}
+
 type TplDative struct {
 	ID       uuid.UUID
 	Kind     string

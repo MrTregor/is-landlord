@@ -105,6 +105,25 @@ func (q *Queries) ContractDocumentSince(ctx context.Context, arg ContractDocumen
 	return exists, err
 }
 
+const contractDocumentSnapshotBefore = `-- name: ContractDocumentSnapshotBefore :one
+SELECT data_snapshot FROM documents
+WHERE contract_id = $1 AND kind IN ('contract_ch35', 'contract_ch34') AND created_at < $2
+ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+type ContractDocumentSnapshotBeforeParams struct {
+	ContractID *uuid.UUID
+	Before     time.Time
+}
+
+// Данные последнего документа договора, сформированного до первого продления (№ 35).
+func (q *Queries) ContractDocumentSnapshotBefore(ctx context.Context, arg ContractDocumentSnapshotBeforeParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, contractDocumentSnapshotBefore, arg.ContractID, arg.Before)
+	var data_snapshot []byte
+	err := row.Scan(&data_snapshot)
+	return data_snapshot, err
+}
+
 const deactivateTemplates = `-- name: DeactivateTemplates :exec
 UPDATE document_templates SET is_active = false WHERE kind = $1 AND is_active
 `
@@ -131,6 +150,25 @@ func (q *Queries) DepositBalanceOn(ctx context.Context, arg DepositBalanceOnPara
 	var balance_kop int64
 	err := row.Scan(&balance_kop)
 	return balance_kop, err
+}
+
+const firstExtension = `-- name: FirstExtension :one
+SELECT effective_from, applied_at FROM contract_amendments
+WHERE contract_id = $1 AND kind = 'extension' AND status = 'signed'
+ORDER BY applied_at, number LIMIT 1
+`
+
+type FirstExtensionRow struct {
+	EffectiveFrom date.Date
+	AppliedAt     *time.Time
+}
+
+// Первое подписанное допсоглашение о продлении договора (№ 35).
+func (q *Queries) FirstExtension(ctx context.Context, contractID uuid.UUID) (FirstExtensionRow, error) {
+	row := q.db.QueryRow(ctx, firstExtension, contractID)
+	var i FirstExtensionRow
+	err := row.Scan(&i.EffectiveFrom, &i.AppliedAt)
+	return i, err
 }
 
 const getDocument = `-- name: GetDocument :one
@@ -748,6 +786,27 @@ func (q *Queries) SetDocumentVisibility(ctx context.Context, arg SetDocumentVisi
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const showAmendmentDocuments = `-- name: ShowAmendmentDocuments :exec
+UPDATE documents SET visible_to_tenant = true WHERE amendment_id = $1 AND NOT visible_to_tenant
+`
+
+// Черновик допсоглашения становится виден нанимателю при подписании (№ 43).
+func (q *Queries) ShowAmendmentDocuments(ctx context.Context, amendmentID *uuid.UUID) error {
+	_, err := q.db.Exec(ctx, showAmendmentDocuments, amendmentID)
+	return err
+}
+
+const showContractDocuments = `-- name: ShowContractDocuments :exec
+UPDATE documents SET visible_to_tenant = true
+WHERE contract_id = $1 AND kind IN ('contract_ch35', 'contract_ch34') AND NOT visible_to_tenant
+`
+
+// Проект договора становится виден нанимателю при активации (docs/open-questions.md, № 43).
+func (q *Queries) ShowContractDocuments(ctx context.Context, contractID *uuid.UUID) error {
+	_, err := q.db.Exec(ctx, showContractDocuments, contractID)
+	return err
 }
 
 const supersedeDocuments = `-- name: SupersedeDocuments :exec

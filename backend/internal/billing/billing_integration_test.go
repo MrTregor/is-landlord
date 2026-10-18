@@ -115,23 +115,16 @@ func byMonth(list []charge, kind, month string) *charge {
 	return nil
 }
 
-// pay вносит проведённый платёж и распределение напрямую в БД (минуя сервис платежей: проверяются только начисления).
-func pay(t *testing.T, contractID, chargeID string, amount int64, on string) {
+// pay регистрирует ручной платёж через сервис платежей (M6, № 26) с распределением на начисление.
+func (w world) pay(t *testing.T, contractID, chargeID string, amount int64, on string) {
 	t.Helper()
-	ctx := context.Background()
-	conn := testsupport.Owner(t)
-	var pid string
-	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source, status, receipt_number)
-		VALUES ($1, 'charges', $2, $3, 'bank_transfer', 'manual', 'succeeded', 'КВ-ТЕСТ-' || gen_random_uuid()) RETURNING id`,
-		contractID, amount, on).Scan(&pid))
-	_, err := conn.Exec(ctx, `INSERT INTO payment_allocations (payment_id, charge_id, amount_kop) VALUES ($1, $2, $3)`, pid, chargeID, amount)
-	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `UPDATE charges SET paid_kop = paid_kop + $2,
-		status = CASE WHEN paid_kop + $2 >= amount_kop THEN 'paid' ELSE 'partially_paid' END WHERE id = $1`, chargeID, amount)
-	require.NoError(t, err)
+	r := w.c.Do(http.MethodPost, "/payments", map[string]any{
+		"contractId": contractID, "purpose": "charges", "amountKop": amount, "receivedOn": on, "method": "bank_transfer",
+		"chargeIds": []string{chargeID}, "comment": nil,
+	})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 }
 
-// IT-01, ТК-11: договор с датой начала в прошлом — начисления за все месяцы; март — 16 451,61 ₽ (R1, FR-05.1).
 func TestActivationCreatesCharges_IT01_TK11_FR05_1(t *testing.T) {
 	w := setup(t, "2026-10-16", "a1")
 	id := w.contract(t, "2026-03-15", "2027-03-14", 3000000, nil)
@@ -190,7 +183,8 @@ func TestPenalties_TK12_FR05_3(t *testing.T) {
 	oct := byMonth(w.charges(t, id), "rent", "2026-10-01")
 	require.NotNil(t, oct)
 	require.Equal(t, int64(2650000), oct.AmountKop)
-	pay(t, id, oct.ID, 1500000, "2026-10-07")
+	w.at(t, "2026-10-07")
+	w.pay(t, id, oct.ID, 1500000, "2026-10-07")
 
 	ctx := context.Background()
 	w.at(t, "2026-10-17")
@@ -220,7 +214,7 @@ func TestPenalties_TK12_FR05_3(t *testing.T) {
 	assert.Equal(t, int64(10350), p.AmountKop)
 
 	// Полная оплата 18.10 → final со сроком 18.10.
-	pay(t, id, oct.ID, 1150000, "2026-10-18")
+	w.pay(t, id, oct.ID, 1150000, "2026-10-18")
 	w.at(t, "2026-10-20")
 	_, err = w.env.App.Billing.RunPenaltiesDaily(ctx, jobs.DailyArgs{BusinessDate: date.MustParse("2026-10-20")})
 	require.NoError(t, err)
@@ -256,7 +250,7 @@ func TestTerminationRecalc_IT12_R4_FR03_2(t *testing.T) {
 	dec := byMonth(list, "rent", "2026-12-01")
 	require.NotNil(t, nov)
 	require.NotNil(t, dec, "декабрь создан 28.11 (за 3 дня до срока)")
-	pay(t, id, nov.ID, 2800000, "2026-11-01")
+	w.pay(t, id, nov.ID, 2800000, "2026-11-01")
 
 	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/terminate", map[string]any{"terminationDate": "2026-11-10", "initiator": "tenant", "reason": "Переезд в другой город"})
 	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
@@ -338,7 +332,7 @@ func TestTermsChangeRecalc_FR05_4(t *testing.T) {
 	id := w.contract(t, "2026-03-01", "2028-02-28", 2800000, func(m map[string]any) { m["paymentDay"] = 1 })
 	apr := byMonth(w.charges(t, id), "rent", "2027-04-01")
 	require.NotNil(t, apr)
-	pay(t, id, apr.ID, 2800000, "2027-03-29")
+	w.pay(t, id, apr.ID, 2800000, "2027-03-29")
 	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/amendments", map[string]any{"kind": "rent_change", "effectiveFrom": "2027-04-01", "newRentKop": 2940000})
 	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	r = w.c.Do(http.MethodPost, "/amendments/"+r.ID(t)+"/sign", map[string]any{"signedOn": "2027-03-29"})
@@ -371,23 +365,31 @@ func TestUtilitiesFromReadings_IT15_TK14_FR05_5(t *testing.T) {
 		m["utilitiesFixedKop"] = 45000
 		m["paymentDay"] = 10
 	})
-	conn := testsupport.Owner(t)
-	var ids []string
-	for typ, v := range map[string]string{"cold_water": "115.900", "electricity": "9012"} {
-		var rid string
-		require.NoError(t, conn.QueryRow(ctx, `INSERT INTO meter_readings (meter_id, contract_id, period_month, reading_date, value, source, status)
-			VALUES ($1, $2, '2026-09-01', '2026-09-30', $3, 'tenant', 'submitted') RETURNING id`, meters[typ], id, v).Scan(&rid))
-		ids = append(ids, rid)
+	// Показания за сентябрь передаёт наниматель из кабинета (M13, № 26): окно 20.09–05.10.
+	tenant := w.env.TenantUser(t, w.tenant, "tenant-f6@landlord.local", password)
+	submit := func(month string, values map[string]string) {
+		t.Helper()
+		var readings []any
+		for typ, v := range values {
+			readings = append(readings, map[string]any{"meterId": meters[typ], "value": v})
+		}
+		r := tenant.Do(http.MethodPost, "/cabinet/meter-readings", map[string]any{"contractId": id, "periodMonth": month, "readings": readings})
+		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	}
+	submit("2026-09-01", map[string]string{"cold_water": "115.900", "electricity": "9012"})
 	var list struct {
 		Items []struct {
 			ID          string  `json:"id"`
+			MeterID     string  `json:"meterId"`
+			ReadingDate string  `json:"readingDate"`
 			Consumption *string `json:"consumption"`
 			Status      string  `json:"status"`
 		} `json:"items"`
 	}
 	w.c.Do(http.MethodGet, "/meter-readings?status=submitted&propertyId="+w.property, nil).JSON(t, &list)
 	require.Len(t, list.Items, 2)
+	assert.Equal(t, "2026-09-30", list.Items[0].ReadingDate)
+	ids := []string{list.Items[0].ID, list.Items[1].ID}
 
 	type decision struct {
 		UtilitiesCharge *charge `json:"utilitiesCharge"`
@@ -426,15 +428,44 @@ func TestUtilitiesFromReadings_IT15_TK14_FR05_5(t *testing.T) {
 	assert.Equal(t, int64(5437+45000), oct.AmountKop)
 	assert.NotEmpty(t, oct.CalcDetails["warnings"])
 
-	// Отклонение показания нанимателя — письмо.
+	// Отклонение показания нанимателя — письмо (показания за ноябрь — из кабинета, окно 20.11–05.12).
+	w.at(t, "2026-12-01")
+	tenant.Login("tenant-f6@landlord.local", password)
+	submit("2026-11-01", map[string]string{"cold_water": "118.000", "electricity": "9100"})
+	conn := testsupport.Owner(t)
 	var rid string
-	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO meter_readings (meter_id, contract_id, period_month, reading_date, value, source, status)
-		VALUES ($1, $2, '2026-11-01', '2026-11-30', '9100', 'tenant', 'submitted') RETURNING id`, meters["electricity"], id).Scan(&rid))
+	require.NoError(t, conn.QueryRow(ctx, `SELECT id FROM meter_readings WHERE meter_id = $1 AND period_month = '2026-11-01' AND source = 'tenant'`,
+		meters["electricity"]).Scan(&rid))
 	r = w.c.Do(http.MethodPost, "/meter-readings/"+rid+"/reject", map[string]any{"reason": "Нет фото счётчика"})
 	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
 	var mails int
 	require.NoError(t, conn.QueryRow(ctx, `SELECT count(*) FROM email_log WHERE dedupe_key = $1`, "readings_rejected:"+rid).Scan(&mails))
 	assert.Equal(t, 1, mails)
+}
+
+// № 31: в месяце начала договора фиксированная часть ЖКУ по показаниям — пропорционально дням пользования
+// (16 из 30 дней сентября: 450 × 16 / 30 = 240), как в итоговом начислении по акту возврата (FR-05.5).
+func TestUtilitiesFixedPartFirstMonth_FR05_5(t *testing.T) {
+	w := setup(t, "2026-10-02", "z1")
+	r := w.c.Do(http.MethodPost, "/properties/"+w.property+"/meters", map[string]any{
+		"type": "cold_water", "serialNumber": nil, "initialValue": "112.400", "initialDate": "2026-09-14", "verificationDue": nil, "note": nil})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	meter := r.ID(t)
+	r = w.c.Do(http.MethodPost, "/settings/tariffs", map[string]any{"meterType": "cold_water", "propertyId": w.property, "price": "54.37", "effectiveFrom": "2026-01-01", "note": nil})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	w.contract(t, "2026-09-15", "2027-07-31", 3000000, func(m map[string]any) {
+		m["utilitiesMode"] = "meters"
+		m["utilitiesFixedKop"] = 45000
+		m["paymentDay"] = 10
+	})
+	r = w.c.Do(http.MethodPost, "/meter-readings", map[string]any{"meterId": meter, "periodMonth": "2026-09-01", "readingDate": "2026-09-30", "value": "115.900"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	var dec struct {
+		UtilitiesCharge *charge `json:"utilitiesCharge"`
+	}
+	r.JSON(t, &dec)
+	require.NotNil(t, dec.UtilitiesCharge)
+	assert.Equal(t, int64(19030+24000), dec.UtilitiesCharge.AmountKop, "3,5 м³ × 54,37 = 190,30 и фиксированная часть 240,00")
 }
 
 // Ручное начисление, корректировка и отмена (14 разд. 5, FR-05).

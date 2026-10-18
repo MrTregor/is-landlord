@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -72,8 +73,14 @@ type world struct {
 	loadMode bool
 }
 
+// ErrProd — загрузка демо-данных стирает бизнес-данные, в рабочем окружении она запрещена (№ 103).
+var ErrProd = errors.New("Загрузка демо-данных запрещена в рабочем окружении") //nolint:staticcheck // текст для пользователя (ST1005)
+
 // Run выполняет `cli seed --demo` (и `--load`).
 func Run(ctx context.Context, base *config.Config, log *slog.Logger, out io.Writer, opt Options) error {
+	if base.AppEnv == config.EnvProd {
+		return ErrProd
+	}
 	cfg := *base
 	cfg.CookieSecure = false // встроенный сервер доступен только этому процессу по http
 	bank := newFakeBank()

@@ -409,15 +409,16 @@ func TestCancelAfterAdvanceToDeposit_FR06_1(t *testing.T) {
 // № 47 (open-questions): внесение залога онлайн-платежом не отменяется (05 разд. 10.5 — только manual,
 // bank_import, deposit_offset), ошибка та же, что при отмене платежа.
 func TestCancelOnlineDepositReceipt_FR05_2(t *testing.T) {
-	w := setup(t, "2026-10-12", "m0")
-	id := w.contract(t, "2026-10-01", "2027-09-30", 2800000, func(m map[string]any) { m["depositKop"] = 2800000 })
-	ctx := context.Background()
-	conn := testsupport.Owner(t)
-	var pid, opID string
-	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source, status, receipt_number)
-		VALUES ($1, 'deposit', 2800000, '2026-10-05', 'online', 'online', 'succeeded', 'КВ-ТЕСТ-ОНЛАЙН') RETURNING id`, id).Scan(&pid))
-	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO deposit_transactions (contract_id, kind, amount_kop, op_date, payment_id)
-		VALUES ($1, 'receipt', 2800000, '2026-10-05', $2) RETURNING id`, id, pid).Scan(&opID))
+	// Залог вносится онлайн-оплатой из кабинета через банк (M7, № 26), а не записью в БД.
+	o := newOnline(t, "m0", func(m map[string]any) { m["depositKop"] = 2800000 })
+	w := o.world
+	pid := o.start(t, "deposit").PaymentID
+	require.Equal(t, http.StatusOK, o.notify(t, o.env.Bank.Notification(o.env.Bank.Last(), "CONFIRMED")).Status)
+	o.process(t)
+	require.Equal(t, "succeeded", w.payment(t, pid).Status)
+	var opID string
+	require.NoError(t, testsupport.Owner(t).QueryRow(context.Background(),
+		`SELECT id FROM deposit_transactions WHERE payment_id = $1 AND kind = 'receipt'`, pid).Scan(&opID))
 
 	r := w.c.Do(http.MethodPost, "/payments/"+pid+"/cancel", map[string]any{"reason": "Ошибка"})
 	require.Equal(t, http.StatusUnprocessableEntity, r.Status)

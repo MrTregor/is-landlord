@@ -202,11 +202,15 @@ func (q *Queries) OrphanFiles(ctx context.Context, before time.Time) ([]OrphanFi
 }
 
 const retentionCandidates = `-- name: RetentionCandidates :many
-SELECT t.id FROM tenants t JOIN contracts c ON c.tenant_id = t.id
+SELECT t.id FROM tenants t LEFT JOIN contracts c ON c.tenant_id = t.id
 WHERE t.anonymized_at IS NULL
-GROUP BY t.id
-HAVING bool_and(c.status NOT IN ('draft', 'active', 'extended'))
-   AND (max(c.actual_end_date) + make_interval(years => $1::int))::date < $2::date
+GROUP BY t.id, t.created_at
+HAVING (count(c.id) FILTER (WHERE c.status <> 'draft') > 0
+        AND bool_and(c.status NOT IN ('draft', 'active', 'extended'))
+        AND (max(c.actual_end_date) + make_interval(years => $1::int))::date < $2::date)
+    OR (count(c.id) FILTER (WHERE c.status <> 'draft') = 0
+        AND ((coalesce(max(c.updated_at), t.created_at) AT TIME ZONE 'Europe/Moscow')::date
+             + make_interval(years => $1::int))::date < $2::date)
 ORDER BY t.id
 `
 
@@ -215,8 +219,9 @@ type RetentionCandidatesParams struct {
 	Today date.Date
 }
 
-// Наниматели без договоров draft/active/extended, у которых последний фактический конец договора + срок хранения
-// раньше сегодняшнего дня; ещё не обезличенные.
+// Ещё не обезличенные наниматели, у которых истёк срок хранения (дата + срок раньше сегодняшнего дня):
+// с договорами (кроме черновиков), все не draft/active/extended, — от последнего фактического конца договора;
+// без договоров — от создания нанимателя, только с черновиками — от последнего изменения черновика (№ 105).
 func (q *Queries) RetentionCandidates(ctx context.Context, arg RetentionCandidatesParams) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, retentionCandidates, arg.Years, arg.Today)
 	if err != nil {

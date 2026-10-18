@@ -4,13 +4,18 @@
 SELECT EXISTS (SELECT 1 FROM contracts WHERE tenant_id = $1 AND status IN ('draft', 'active', 'extended'))::boolean;
 
 -- name: RetentionCandidates :many
--- Наниматели без договоров draft/active/extended, у которых последний фактический конец договора + срок хранения
--- раньше сегодняшнего дня; ещё не обезличенные.
-SELECT t.id FROM tenants t JOIN contracts c ON c.tenant_id = t.id
+-- Ещё не обезличенные наниматели, у которых истёк срок хранения (дата + срок раньше сегодняшнего дня):
+-- с договорами (кроме черновиков), все не draft/active/extended, — от последнего фактического конца договора;
+-- без договоров — от создания нанимателя, только с черновиками — от последнего изменения черновика (№ 105).
+SELECT t.id FROM tenants t LEFT JOIN contracts c ON c.tenant_id = t.id
 WHERE t.anonymized_at IS NULL
-GROUP BY t.id
-HAVING bool_and(c.status NOT IN ('draft', 'active', 'extended'))
-   AND (max(c.actual_end_date) + make_interval(years => sqlc.arg(years)::int))::date < sqlc.arg(today)::date
+GROUP BY t.id, t.created_at
+HAVING (count(c.id) FILTER (WHERE c.status <> 'draft') > 0
+        AND bool_and(c.status NOT IN ('draft', 'active', 'extended'))
+        AND (max(c.actual_end_date) + make_interval(years => sqlc.arg(years)::int))::date < sqlc.arg(today)::date)
+    OR (count(c.id) FILTER (WHERE c.status <> 'draft') = 0
+        AND ((coalesce(max(c.updated_at), t.created_at) AT TIME ZONE 'Europe/Moscow')::date
+             + make_interval(years => sqlc.arg(years)::int))::date < sqlc.arg(today)::date)
 ORDER BY t.id;
 
 -- name: AnonymizeTenant :one

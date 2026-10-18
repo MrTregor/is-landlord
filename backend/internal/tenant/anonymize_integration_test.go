@@ -148,3 +148,61 @@ func TestRetentionDaily_IT13_NFR_Sec_05(t *testing.T) {
 	w.checkAnonymized(t)
 	assert.Equal(t, "succeeded", scalar[string](t, `SELECT status FROM job_runs WHERE job_name = 'pdn.retention_daily' ORDER BY started_at DESC LIMIT 1`))
 }
+
+// № 105: наниматель без договоров обезличивается через срок хранения после создания, только с черновиками —
+// после последнего изменения черновика (NFR-Sec-05).
+func TestRetentionWithoutContracts_NFR_Sec_05(t *testing.T) {
+	w := anonSetup(t, "n05")
+	ctx := context.Background()
+	newTenant := func(email string) string {
+		p := person()
+		p["email"], p["lastName"], p["phone"] = email, "Седова", nil // не мешать поиску «кузнец» и «916-123» в TK-04
+		r := w.owner.Do(http.MethodPost, "/tenants", p)
+		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+		return r.ID(t)
+	}
+	// Наниматель anonSetup здесь не обезличивается — его телефон не должен мешать поиску «916-123» в TK-04.
+	_, err := testsupport.Owner(t).Exec(ctx, `UPDATE tenants SET phone = NULL WHERE id = $1`, w.tenant)
+	require.NoError(t, err)
+	lonely := newTenant("lonely-n05@landlord.local")
+	drafty := newTenant("drafty-n05@landlord.local")
+	var property string
+	require.NoError(t, testsupport.Owner(t).QueryRow(ctx, `SELECT property_id FROM contracts WHERE id = $1`, w.contract).Scan(&property))
+	r := w.owner.Do(http.MethodPost, "/contracts", map[string]any{
+		"propertyId": property, "tenantId": drafty, "startDate": "2027-08-01", "endDate": "2028-06-30", "rentKop": 2500000,
+		"paymentDay": 5, "depositKop": 0, "utilitiesMode": "included", "utilitiesFixedKop": 0, "penaltyEnabled": false,
+		"penaltyGraceDays": 0, "penaltyOnUtilities": false, "indexationEnabled": false, "indexationPeriodMonths": 12, "occupants": []any{},
+	})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	draft := r.ID(t)
+	// Даты создания и изменения — мимо триггера updated_at.
+	conn := testsupport.Owner(t)
+	_, err = conn.Exec(ctx, `SET session_replication_role = replica`)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `UPDATE tenants SET created_at = '2026-10-15 12:00+03' WHERE id IN ($1, $2)`, lonely, drafty)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `UPDATE contracts SET updated_at = '2027-01-10 12:00+03' WHERE id = $1`, draft)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `SET session_replication_role = DEFAULT`)
+	require.NoError(t, err)
+
+	anonymized := func(id string) bool {
+		return scalar[int](t, `SELECT count(*) FROM tenants WHERE id = $1 AND anonymized_at IS NOT NULL`, id) == 1
+	}
+	run := func(day string) {
+		t.Helper()
+		d, _ := time.ParseInLocation("2006-01-02", day, testsupport.Moscow())
+		w.env.Clock.Set(d.Add(12 * time.Hour))
+		st, err := w.env.App.Tenants.RunRetentionDaily(ctx, jobs.DailyArgs{})
+		require.NoError(t, err)
+		assert.Empty(t, st.Errors)
+	}
+	run("2029-10-15")
+	assert.False(t, anonymized(lonely), "ровно 3 года после создания — ещё хранится")
+	run("2029-10-16")
+	assert.True(t, anonymized(lonely), "без договоров — через 3 года после создания")
+	assert.False(t, anonymized(drafty), "черновик изменён 10.01.2027 — срок от него")
+	assert.False(t, anonymized(w.tenant), "действующий договор")
+	run("2030-01-11")
+	assert.True(t, anonymized(drafty), "только черновики — через 3 года после последнего изменения черновика")
+}

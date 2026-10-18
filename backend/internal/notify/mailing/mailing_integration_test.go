@@ -195,6 +195,18 @@ func TestReadingsReminder_FR_05_5(t *testing.T) {
 	contract, _ := w.lease(t, "Студия 5", "2026-09-01", "2027-07-31", 2800000, 10, func(b map[string]any) {
 		b["utilitiesMode"] = "meters"
 	})
+	// № 79: показания за октябрь по всем счётчикам уже внесены — напоминание не отправляется.
+	done, _ := w.lease(t, "Студия 7", "2026-09-01", "2027-07-31", 2800000, 10, func(b map[string]any) {
+		b["utilitiesMode"] = "meters"
+	})
+	var meter, prop string
+	require.NoError(t, testsupport.Owner(t).QueryRow(ctx, `SELECT m.id::text, m.property_id::text FROM meters m
+		JOIN contracts c ON c.property_id = m.property_id WHERE c.id = $1`, done).Scan(&meter, &prop))
+	r := w.c.Do(http.MethodPost, "/settings/tariffs", map[string]any{"meterType": "cold_water", "propertyId": prop, "price": "54.37",
+		"effectiveFrom": "2026-01-01", "note": nil})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	r = w.c.Do(http.MethodPost, "/meter-readings", map[string]any{"meterId": meter, "periodMonth": "2026-10-01", "readingDate": "2026-10-15", "value": "105"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	_, err := w.env.App.Mailing.RunReadingsReminder(ctx, day("2026-10-19"))
 	require.NoError(t, err)
 	assert.Empty(t, mails(t, "readings_reminder", contract), "до 20-го письма нет")
@@ -206,6 +218,7 @@ func TestReadingsReminder_FR_05_5(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, "Передайте показания счётчиков за октябрь 2026", list[0].Subject)
 	assert.Contains(t, list[0].Body, "до 05.11.2026")
+	assert.Empty(t, mails(t, "readings_reminder", done), "показания уже внесены (№ 79)")
 }
 
 // Утренняя сводка: просрочки и расхождения; письмо каждому собственнику, повтор — без дубля (FR-10.2).

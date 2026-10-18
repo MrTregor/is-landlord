@@ -511,6 +511,57 @@ func TestReconcileAndNoAnswer_FR_06_4(t *testing.T) {
 	assert.Equal(t, "Нет ответа от кассы", *f.ErrorText)
 }
 
+// № 63: касса недоступна — чек в queued дольше часа попадает в утреннюю сводку («Ошибки чеков и задач»),
+// дольше суток — письмо собственнику owner_fiscal_error (одно на время ожидания); чек остаётся в очереди (FR-06.4).
+func TestQueuedTooLong_FR_06_4(t *testing.T) {
+	w := setup(t, "stuck")
+	ctx := context.Background()
+	contract := w.lease(t, "З", "cloud_kkt", true)
+	pid := w.pay(t, contract, 4500000, "bank_transfer")
+	f := w.paymentReceipt(t, pid)
+	conn := testsupport.Owner(t)
+	age := func(interval string) {
+		t.Helper()
+		_, err := conn.Exec(ctx, `SET session_replication_role = replica`)
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, `UPDATE fiscal_receipts SET updated_at = now() - $2::interval WHERE id = $1`, f.ID, interval)
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, `SET session_replication_role = DEFAULT`)
+		require.NoError(t, err)
+	}
+	letters := func() int {
+		t.Helper()
+		var n int
+		require.NoError(t, conn.QueryRow(ctx, `SELECT count(*) FROM email_log WHERE template_code = 'owner_fiscal_error'
+			AND related_entity_id = $1 AND to_email = $2`, f.ID, w.email).Scan(&n))
+		return n
+	}
+
+	age("2 hours")
+	_, err := w.env.App.Mailing.RunOwnerDigest(ctx, reconcileArgs())
+	require.NoError(t, err)
+	var digest string
+	require.NoError(t, conn.QueryRow(ctx, `SELECT body_html FROM email_log WHERE template_code = 'owner_daily_digest'
+		AND dedupe_key LIKE 'owner_digest:2026-10-12:%' AND to_email = $1`, w.email).Scan(&digest))
+	assert.Contains(t, digest, "Чеки в очереди больше часа (касса недоступна): ")
+	_, err = w.env.App.Fiscal.RunReconcile(ctx, reconcileArgs())
+	require.NoError(t, err)
+	assert.Zero(t, letters(), "меньше суток — письма нет")
+
+	age("25 hours")
+	_, err = w.env.App.Fiscal.RunReconcile(ctx, reconcileArgs())
+	require.NoError(t, err)
+	assert.Equal(t, 1, letters())
+	var body string
+	require.NoError(t, conn.QueryRow(ctx, `SELECT body_html FROM email_log WHERE template_code = 'owner_fiscal_error'
+		AND related_entity_id = $1 AND to_email = $2`, f.ID, w.email).Scan(&body))
+	assert.Contains(t, body, "больше суток не удаётся отправить в кассу")
+	_, err = w.env.App.Fiscal.RunReconcile(ctx, reconcileArgs())
+	require.NoError(t, err)
+	assert.Equal(t, 1, letters(), "повтор не дублирует письмо")
+	assert.Equal(t, "queued", w.paymentReceipt(t, pid).Status)
+}
+
 // Чеки — только собственнику; колбэк по неизвестному uuid — 200 без действий.
 func TestReceiptsAccess(t *testing.T) {
 	w := setup(t, "access")

@@ -78,6 +78,15 @@ ORDER BY amendment_id, created_at DESC, id DESC;
 -- name: SetDocumentVisibility :one
 UPDATE documents SET visible_to_tenant = @visible WHERE id = @id RETURNING *;
 
+-- name: ShowContractDocuments :exec
+-- Проект договора становится виден нанимателю при активации (docs/open-questions.md, № 43).
+UPDATE documents SET visible_to_tenant = true
+WHERE contract_id = @contract_id AND kind IN ('contract_ch35', 'contract_ch34') AND NOT visible_to_tenant;
+
+-- name: ShowAmendmentDocuments :exec
+-- Черновик допсоглашения становится виден нанимателю при подписании (№ 43).
+UPDATE documents SET visible_to_tenant = true WHERE amendment_id = @amendment_id AND NOT visible_to_tenant;
+
 -- name: SetDocumentSignedScan :one
 UPDATE documents SET signed_scan_file_id = @file_id WHERE id = @id RETURNING *;
 
@@ -127,3 +136,15 @@ SELECT id, op_date AS on_date, reason, amount_kop
 FROM deposit_transactions
 WHERE contract_id = @contract_id AND kind = 'withholding' AND cancelled_at IS NULL AND op_date <= @period_to::date
 ORDER BY op_date, created_at, id;
+
+-- name: FirstExtension :one
+-- Первое подписанное допсоглашение о продлении договора (№ 35).
+SELECT effective_from, applied_at FROM contract_amendments
+WHERE contract_id = @contract_id AND kind = 'extension' AND status = 'signed'
+ORDER BY applied_at, number LIMIT 1;
+
+-- name: ContractDocumentSnapshotBefore :one
+-- Данные последнего документа договора, сформированного до первого продления (№ 35).
+SELECT data_snapshot FROM documents
+WHERE contract_id = @contract_id AND kind IN ('contract_ch35', 'contract_ch34') AND created_at < @before
+ORDER BY created_at DESC, id DESC LIMIT 1;

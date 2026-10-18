@@ -124,6 +124,15 @@ func (s *Service) digest(ctx context.Context, today date.Date) ([]notify.Section
 			Text: fmt.Sprintf("Чеки с ошибкой или к формированию вручную: %d", fiscalErrors), Link: link("/fiscal-receipts"),
 		})
 	}
+	queuedFiscal, err := q.DigestQueuedFiscal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if queuedFiscal > 0 {
+		errorsItems = append(errorsItems, notify.Item{
+			Text: fmt.Sprintf("Чеки в очереди больше часа (касса недоступна): %d", queuedFiscal), Link: link("/fiscal-receipts"),
+		})
+	}
 	failed, err := q.DigestFailedJobs(ctx, today.AddDays(-1))
 	if err != nil {
 		return nil, err

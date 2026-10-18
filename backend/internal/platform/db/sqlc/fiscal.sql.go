@@ -772,3 +772,34 @@ func (q *Queries) StaleWaitFiscal(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	return items, nil
 }
+
+const stuckQueuedFiscal = `-- name: StuckQueuedFiscal :many
+SELECT id, updated_at AS queued_since FROM fiscal_receipts
+WHERE status = 'queued' AND updated_at < now() - interval '24 hours' ORDER BY created_at
+`
+
+type StuckQueuedFiscalRow struct {
+	ID          uuid.UUID
+	QueuedSince time.Time
+}
+
+// fiscal.reconcile: чеки в queued дольше суток — письмо собственникам (№ 63); queued_since — начало ожидания.
+func (q *Queries) StuckQueuedFiscal(ctx context.Context) ([]StuckQueuedFiscalRow, error) {
+	rows, err := q.db.Query(ctx, stuckQueuedFiscal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []StuckQueuedFiscalRow{}
+	for rows.Next() {
+		var i StuckQueuedFiscalRow
+		if err := rows.Scan(&i.ID, &i.QueuedSince); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

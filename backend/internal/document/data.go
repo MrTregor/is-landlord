@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -257,8 +258,36 @@ func (s *Service) loadContract(ctx context.Context, q *sqlc.Queries, id uuid.UUI
 	return cc, err
 }
 
+// originalEnd — дата окончания договора до первого продления (№ 35): из данных документа договора, сформированного
+// до продления, а без такого документа — день перед датой вступления первого допсоглашения о продлении.
+func originalEnd(ctx context.Context, q *sqlc.Queries, c sqlc.Contract) (date.Date, error) {
+	ext, err := q.FirstExtension(ctx, c.ID)
+	if db.IsNoRows(err) {
+		return c.EndDate, nil
+	}
+	if err != nil {
+		return c.EndDate, err
+	}
+	if ext.AppliedAt != nil {
+		raw, err := q.ContractDocumentSnapshotBefore(ctx, sqlc.ContractDocumentSnapshotBeforeParams{ContractID: &c.ID, Before: *ext.AppliedAt})
+		if err != nil && !db.IsNoRows(err) {
+			return c.EndDate, err
+		}
+		var snap struct {
+			Vars map[string]string `json:"vars"`
+		}
+		if err == nil && json.Unmarshal(raw, &snap) == nil {
+			if t, perr := time.Parse("02.01.2006", snap.Vars["contract.end_date"]); perr == nil {
+				return date.FromTime(t), nil
+			}
+		}
+	}
+	return ext.EffectiveFrom.AddDays(-1), nil
+}
+
 // contractData — общие, договорные переменные и блок проживающих (09 разд. 4.1, 4.2).
-// Плата, день оплаты и фиксированная часть ЖКУ — по первоначальным условиям (версия 1): изменения оформляются допсоглашениями.
+// Плата, день оплаты, фиксированная часть ЖКУ и срок — первоначальные (версия 1 условий, срок до продления):
+// изменения оформляются допсоглашениями (№ 35).
 func (s *Service) contractData(ctx context.Context, q *sqlc.Queries, cc contractCtx) (Data, error) {
 	d := newData()
 	s.orgVars(d, cc.org)
@@ -266,6 +295,11 @@ func (s *Service) contractData(ctx context.Context, q *sqlc.Queries, cc contract
 		return d, err
 	}
 	c, p, first := cc.c, cc.p, cc.terms[0]
+	end, err := originalEnd(ctx, q, c)
+	if err != nil {
+		return d, err
+	}
+	c.EndDate = end
 	v := d.Vars
 	v["contract.number"] = c.Number
 	v["contract.title"] = contractTitle(c.LegalBasis)

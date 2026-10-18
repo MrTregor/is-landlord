@@ -197,6 +197,9 @@ func (s *Service) Activate(ctx context.Context, id uuid.UUID, concludedOn date.D
 				return err
 			}
 		}
+		if err := tx.Q.ShowContractDocuments(ctx, &c.ID); err != nil {
+			return err
+		}
 		if inviteTenant {
 			if err := s.invite(ctx, tx, c.TenantID); err != nil {
 				return err

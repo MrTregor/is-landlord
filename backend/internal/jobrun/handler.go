@@ -25,28 +25,27 @@ import (
 	"landlord/backend/internal/platform/jobs"
 )
 
-// Job — плановая задача из таблицы 07: название, расписание (cron, Europe/Moscow) и этап, на котором она появляется.
+// Job — плановая задача из таблицы 07: название и расписание (cron, Europe/Moscow).
 type Job struct {
 	Name     string
 	Title    string
 	Schedule string
-	Stage    string
 }
 
 // Catalog — все плановые задачи в порядке выполнения (07 Фоновые задачи).
 var Catalog = []Job{
-	{"contracts.daily", "Договоры: завершение и статусы объектов", "5 0 * * *", "M3"},
-	{"billing.rent_daily", "Начисления платы", "10 0 * * *", "M4"},
-	{"billing.penalties_daily", "Пени", "20 0 * * *", "M4"},
-	{"billing.indexation_daily", "Черновики индексации", "30 0 * * *", "M4"},
-	{"pdn.retention_daily", "Обезличивание по сроку хранения", "0 3 * * *", "M14"},
-	{"maintenance.cleanup", "Очистка сессий, токенов и файлов", "0 4 * * *", "M14"},
-	{"notify.owner_digest", "Утренняя сводка собственнику", "0 8 * * *", "M10"},
-	{"notify.payment_reminders", "Напоминания об оплате и просрочке", "0 9 * * *", "M10"},
-	{"notify.contract_end", "Письма об окончании договора", "5 9 * * *", "M10"},
-	{"notify.readings_reminder", "Напоминание передать показания", "10 9 * * *", "M10"},
-	{"fiscal.reconcile", "Сверка чеков", "*/15 * * * *", "M8"},
-	{"payments.expire_pending", "Просроченные онлайн-платежи", "15 * * * *", "M7"},
+	{"contracts.daily", "Договоры: завершение и статусы объектов", "5 0 * * *"},
+	{"billing.rent_daily", "Начисления платы", "10 0 * * *"},
+	{"billing.penalties_daily", "Пени", "20 0 * * *"},
+	{"billing.indexation_daily", "Черновики индексации", "30 0 * * *"},
+	{"pdn.retention_daily", "Обезличивание по сроку хранения", "0 3 * * *"},
+	{"maintenance.cleanup", "Очистка сессий, токенов и файлов", "0 4 * * *"},
+	{"notify.owner_digest", "Утренняя сводка собственнику", "0 8 * * *"},
+	{"notify.payment_reminders", "Напоминания об оплате и просрочке", "0 9 * * *"},
+	{"notify.contract_end", "Письма об окончании договора", "5 9 * * *"},
+	{"notify.readings_reminder", "Напоминание передать показания", "10 9 * * *"},
+	{"fiscal.reconcile", "Сверка чеков", "*/15 * * * *"},
+	{"payments.expire_pending", "Просроченные онлайн-платежи", "15 * * * *"},
 }
 
 // Handler — методы API плановых задач.
@@ -113,8 +112,7 @@ func (h *Handler) RunJob(ctx context.Context, req api.RunJobRequestObject) (api.
 	name := string(req.Name)
 	d, ok := h.daily[name]
 	if !ok {
-		stage := h.titles[name].Stage
-		return nil, apperr.BusinessRule(fmt.Sprintf("Задача «%s» появится на этапе %s", h.titles[name].Title, stage))
+		return nil, apperr.NotFound()
 	}
 	today := h.clock.Today()
 	var runID [16]byte

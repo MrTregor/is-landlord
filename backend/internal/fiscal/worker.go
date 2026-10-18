@@ -9,8 +9,10 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"landlord/backend/internal/audit"
+	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/jobs"
+	"landlord/backend/internal/platform/money"
 )
 
 // activeStates — задача по чеку одна, пока она не завершена: повтор после завершения (кнопка «Повторить»,
@@ -149,8 +151,57 @@ func (s *Service) Reconcile(ctx context.Context, st *jobs.Stats) error {
 	}
 	st.Counts["waiting"] = len(waiting)
 	st.Counts["queued"] = len(queued)
+	return s.notifyStuck(ctx, st)
+}
+
+// notifyStuck — чек в queued дольше суток (касса недоступна): письмо собственникам owner_fiscal_error, одно на
+// время ожидания (№ 63); по 54-ФЗ чек выдаётся при расчёте, собственник должен узнать о задержке.
+func (s *Service) notifyStuck(ctx context.Context, st *jobs.Stats) error {
+	stuck, err := s.db.Queries().StuckQueuedFiscal(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range stuck {
+		err := s.db.WithTx(ctx, func(tx *db.Tx) error {
+			f, err := tx.Q.GetFiscalReceipt(ctx, r.ID)
+			if err != nil {
+				return err
+			}
+			pc, err := receiptContext(ctx, tx.Q, f)
+			if err != nil {
+				return err
+			}
+			owners, err := tx.Q.ActiveOwnerUsers(ctx)
+			if err != nil {
+				return err
+			}
+			for _, o := range owners {
+				created, err := s.notify.Enqueue(ctx, tx, notify.Email{
+					Code: "owner_fiscal_error", To: o.Email, RelatedType: "fiscal_receipt", RelatedID: &f.ID,
+					DedupeKey: fmt.Sprintf("owner_fiscal_error:%s:queued:%d:%s", f.ID, r.QueuedSince.Unix(), o.ID),
+					Vars: map[string]string{
+						"amount": money.Kop(f.TotalKop).Format(), "error_text": stuckText, "contract.number": pc.ContractNumber,
+						"link": s.notify.Link("/fiscal-receipts"),
+					},
+				})
+				if err != nil {
+					return err
+				}
+				if created {
+					st.Inc("stuckLetters")
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			st.Fail("чек "+r.ID.String(), err)
+		}
+	}
 	return nil
 }
+
+// stuckText — текст ошибки в письме о чеке, который больше суток не удаётся отправить в кассу.
+const stuckText = "Чек больше суток не удаётся отправить в кассу: касса недоступна. Отправка повторяется автоматически"
 
 // RunReconcile — fiscal.reconcile с записью job_runs и итогом в журнале.
 func (s *Service) RunReconcile(ctx context.Context, args jobs.DailyArgs) (*jobs.Stats, error) {
@@ -162,14 +213,14 @@ func (s *Service) RunReconcile(ctx context.Context, args jobs.DailyArgs) (*jobs.
 			return err
 		}
 		// Запуск каждые 15 минут: в журнал — только запуски, которые что-то сделали (иначе 96 пустых записей в день).
-		if st.Counts["polls"]+st.Counts["sends"] == 0 && len(st.Errors) == 0 {
+		if st.Counts["polls"]+st.Counts["sends"]+st.Counts["stuckLetters"] == 0 && len(st.Errors) == 0 {
 			return nil
 		}
 		return s.db.WithTx(ctx, func(tx *db.Tx) error {
 			return s.audit.Record(ctx, tx.Q, audit.Entry{
 				Action: "job." + ReconcileJobName, EntityType: "job", EntityID: ReconcileJobName,
-				Summary: fmt.Sprintf("Плановая задача %s: опросов поставлено %d, отправок %d, ошибок %d", ReconcileJobName,
-					st.Counts["polls"], st.Counts["sends"], len(st.Errors)),
+				Summary: fmt.Sprintf("Плановая задача %s: опросов поставлено %d, отправок %d, писем о чеках в очереди %d, ошибок %d",
+					ReconcileJobName, st.Counts["polls"], st.Counts["sends"], st.Counts["stuckLetters"], len(st.Errors)),
 				After: map[string]any{"businessDate": args.BusinessDate.String(), "stats": st.Counts, "errors": len(st.Errors)},
 			})
 		})

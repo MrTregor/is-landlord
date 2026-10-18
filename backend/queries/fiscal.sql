@@ -67,6 +67,11 @@ SELECT id FROM fiscal_receipts WHERE status = 'wait' AND updated_at < now() - in
 -- fiscal.reconcile: чеки в queued дольше 5 минут.
 SELECT id FROM fiscal_receipts WHERE status = 'queued' AND updated_at < now() - interval '5 minutes' ORDER BY created_at;
 
+-- name: StuckQueuedFiscal :many
+-- fiscal.reconcile: чеки в queued дольше суток — письмо собственникам (№ 63); queued_since — начало ожидания.
+SELECT id, updated_at AS queued_since FROM fiscal_receipts
+WHERE status = 'queued' AND updated_at < now() - interval '24 hours' ORDER BY created_at;
+
 -- name: ListFiscalReceipts :many
 SELECT f.*, COALESCE(p.receipt_number, rp.receipt_number) AS receipt_number,
        c.id AS contract_id, c.number AS contract_number

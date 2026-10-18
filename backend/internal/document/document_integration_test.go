@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"landlord/backend/internal/document"
+	"landlord/backend/internal/platform/date"
+	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/testsupport"
 )
 
@@ -35,15 +38,19 @@ type docDTO struct {
 type world struct {
 	env      *testsupport.Env
 	c        *testsupport.Client
+	owner    string
 	property string
 	tenant   string
 }
+
+const ownerPassword = "Пароль-документы-1"
 
 // setup — собственник с реквизитами, объект и наниматель-физлицо с паспортом.
 func setup(t *testing.T, suffix string) world {
 	t.Helper()
 	env := testsupport.NewEnv(t, "2026-10-16")
-	c := env.ActiveOwner(t, "docs-"+suffix+"@landlord.local", "Пароль-документы-1")
+	owner := "docs-" + suffix + "@landlord.local"
+	c := env.ActiveOwner(t, owner, ownerPassword)
 	var org map[string]any
 	c.Do(http.MethodGet, "/settings/organization", nil).JSON(t, &org)
 	for k, v := range map[string]any{
@@ -74,7 +81,7 @@ func setup(t *testing.T, suffix string) world {
 		"registrationAddress": "г. Москва, ул. Лесная, д. 5, кв. 12", "email": "kuznetsov-" + suffix + "@landlord.local",
 	})
 	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
-	return world{env: env, c: c, property: prop, tenant: r.ID(t)}
+	return world{env: env, c: c, owner: owner, property: prop, tenant: r.ID(t)}
 }
 
 func (w world) contract(t *testing.T, start, end string) string {
@@ -127,6 +134,7 @@ func TestContractDocument_FR04_1(t *testing.T) {
 	r.JSON(t, &first)
 	assert.Equal(t, document.KindContractCh35, first.Kind)
 	assert.Contains(t, first.Title, "(проект)")
+	assert.False(t, first.VisibleToTenant, "проект договора нанимателю не виден (№ 43)")
 	html := last(w.env)
 	for _, want := range []string{
 		"Договор найма жилого помещения № " + *first.Number,
@@ -169,6 +177,7 @@ func TestContractDocument_FR04_1(t *testing.T) {
 	w.activate(t, id)
 	list := w.docs(t, id)
 	require.Len(t, list, 1)
+	assert.True(t, list[0].VisibleToTenant, "при активации документ становится виден нанимателю (№ 43)")
 
 	// Повторное формирование: прежний документ заменён.
 	r = w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/contract", nil)
@@ -201,6 +210,37 @@ func TestContractDocument_FR04_1(t *testing.T) {
 	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
 	r.JSON(t, &upd)
 	require.NotNil(t, upd.SignedScanURL)
+}
+
+// Повторно сформированный договор после продления: срок — первоначальный, как и плата (№ 35): из данных документа,
+// сформированного до продления, а без них — день перед вступлением допсоглашения о продлении (FR-04.1).
+func TestContractDocumentOriginalTerm_FR04_1(t *testing.T) {
+	w := setup(t, "h8")
+	w.meter(t)
+	id := w.contract(t, "2026-03-15", "2027-03-14")
+	w.activate(t, id)
+	w.env.Clock.Advance(time.Minute)
+	w.c.Login(w.owner, ownerPassword)
+	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/amendments", map[string]any{
+		"kind": "extension", "effectiveFrom": "2027-03-15", "newEndDate": "2027-12-31"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	r = w.c.Do(http.MethodPost, "/amendments/"+r.ID(t)+"/sign", map[string]any{"signedOn": "2026-10-16"})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+
+	regenerate := func() string {
+		t.Helper()
+		r := w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/contract", nil)
+		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+		return last(w.env)
+	}
+	html := regenerate()
+	assert.Contains(t, html, "с 15.03.2026 по 14.03.2027 включительно")
+	assert.NotContains(t, html, "31.12.2027")
+
+	// Данных документа нет (например, после обезличивания) — по дате вступления продления.
+	_, err := testsupport.Owner(t).Exec(context.Background(), `UPDATE documents SET data_snapshot = '{}' WHERE contract_id = $1`, id)
+	require.NoError(t, err)
+	assert.Contains(t, regenerate(), "с 15.03.2026 по 14.03.2027 включительно")
 }
 
 // Активация без сформированного вручную документа создаёт документ договора (05 разд. 4.4 п. 7);
@@ -257,6 +297,7 @@ func TestDocumentsOnActivationActsAmendments_FR04_1(t *testing.T) {
 	var amDoc docDTO
 	r.JSON(t, &amDoc)
 	assert.True(t, strings.HasSuffix(*amDoc.Number, "/ДС-1"))
+	assert.False(t, amDoc.VisibleToTenant, "черновик допсоглашения нанимателю не виден (№ 43)")
 	html = last(w.env)
 	assert.Contains(t, html, "1. С 01.11.2026 размер платы за наём составляет 26 000,00 руб. "+
 		"(двадцать шесть тысяч рублей 00 копеек) в месяц.<br>2. Иные условия не меняются.")
@@ -266,6 +307,13 @@ func TestDocumentsOnActivationActsAmendments_FR04_1(t *testing.T) {
 	w.c.Do(http.MethodGet, "/contracts/"+id+"/amendments", nil).JSON(t, &ams)
 	require.Len(t, ams, 1)
 	require.NotNil(t, ams[0].DocumentID)
+	r = w.c.Do(http.MethodPost, "/amendments/"+am+"/sign", map[string]any{"signedOn": "2026-10-16"})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	for _, d := range w.docs(t, id) {
+		if d.ID == amDoc.ID {
+			assert.True(t, d.VisibleToTenant, "при подписании допсоглашение становится видно нанимателю (№ 43)")
+		}
+	}
 	assert.Equal(t, amDoc.ID, *ams[0].DocumentID)
 }
 
@@ -277,28 +325,51 @@ func TestReconciliationAct_FR04_1(t *testing.T) {
 	id := w.contract(t, "2026-09-01", "2027-08-31")
 	assert.Equal(t, http.StatusUnprocessableEntity, w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/reconciliation-act",
 		map[string]any{"from": "2026-09-01", "to": "2026-10-31"}).Status, "черновик")
-	w.activate(t, id)
+	// Платежи и операции с залогом — через сервисы M6 и M7 (№ 26), по дням.
 	ctx := context.Background()
-	conn := testsupport.Owner(t)
-	var pay1 string
-	require.NoError(t, conn.QueryRow(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source,
-		status, receipt_number) VALUES ($1, 'charges', 3000000, '2026-09-01', 'cash', 'manual', 'succeeded', 'КВ-2026-00001')
-		RETURNING id`, id).Scan(&pay1))
-	_, err := conn.Exec(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, received_on, method, source, status,
-		receipt_number, cancelled_at, cancel_reason) VALUES
-		($1, 'charges', 1000000, '2026-10-10', 'cash', 'manual', 'succeeded', 'КВ-2026-00002', NULL, NULL),
-		($1, 'charges', 700000, '2026-10-12', 'cash', 'manual', 'cancelled', 'КВ-2026-00009', now(), 'Ошибка ввода')`, id)
+	at := func(day string) {
+		w.env.Clock.Set(date.MustParse(day).Time().Add(12 * time.Hour))
+		w.c.Login(w.owner, ownerPassword)
+	}
+	type payDTO struct {
+		ID            string  `json:"id"`
+		ReceiptNumber *string `json:"receiptNumber"`
+	}
+	pay := func(purpose string, amount int64, on string) payDTO {
+		r := w.c.Do(http.MethodPost, "/payments", map[string]any{"contractId": id, "purpose": purpose, "amountKop": amount,
+			"receivedOn": on, "method": "cash", "chargeIds": []string{}, "comment": nil})
+		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+		var p payDTO
+		r.JSON(t, &p)
+		return p
+	}
+	ok := func(r testsupport.Response) testsupport.Response {
+		require.Contains(t, []int{http.StatusOK, http.StatusCreated}, r.Status, string(r.Body))
+		return r
+	}
+	at("2026-09-01")
+	w.activate(t, id)
+	pay1 := pay("charges", 3000000, "2026-09-01") // сентябрь 28 000 + аванс 2 000
+	pay("deposit", 2800000, "2026-09-01")
+	at("2026-10-05")
+	ok(w.c.Do(http.MethodPost, "/payments/"+pay1.ID+"/move-to-deposit", map[string]any{"amountKop": 200000, "opDate": "2026-10-05"}))
+	at("2026-10-16")
+	_, err := w.env.App.Billing.RunRentDaily(ctx, jobs.DailyArgs{BusinessDate: date.MustParse("2026-10-16")})
 	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `INSERT INTO payments (contract_id, purpose, amount_kop, method, source, status)
-		VALUES ($1, 'charges', 500000, 'online', 'online', 'pending')`, id)
-	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `INSERT INTO deposit_transactions (contract_id, kind, amount_kop, op_date, reason, payment_id,
-		from_advance, cancelled_at, cancel_reason) VALUES
-		($1, 'receipt', 2800000, '2026-09-01', NULL, NULL, false, NULL, NULL),
-		($1, 'receipt', 200000, '2026-10-20', NULL, $2, true, NULL, NULL),
-		($1, 'withholding', 300000, '2026-10-25', 'Ремонт двери', NULL, false, NULL, NULL),
-		($1, 'withholding', 100000, '2026-10-26', 'Отменённое удержание', NULL, false, now(), 'Ошибка')`, id, pay1)
-	require.NoError(t, err)
+	pay2 := pay("charges", 1000000, "2026-10-10")
+	pay3 := pay("charges", 700000, "2026-10-12")
+	ok(w.c.Do(http.MethodPost, "/payments/"+pay3.ID+"/cancel", map[string]any{"reason": "Ошибка ввода"}))
+	tenant := w.env.TenantUser(t, w.tenant, "tenant-c3@landlord.local", "Пароль-наниматель-1")
+	ok(tenant.Do(http.MethodPost, "/cabinet/payments", map[string]any{"contractId": id, "purpose": "charges", "chargeIds": []string{}}))
+	at("2026-10-26")
+	ok(w.c.Do(http.MethodPost, "/contracts/"+id+"/deposit/withholdings", map[string]any{"amountKop": 300000, "opDate": "2026-10-25", "reason": "Ремонт двери"}))
+	var op struct {
+		ID string `json:"id"`
+	}
+	ok(w.c.Do(http.MethodPost, "/contracts/"+id+"/deposit/withholdings", map[string]any{"amountKop": 100000, "opDate": "2026-10-26",
+		"reason": "Отменённое удержание"})).JSON(t, &op)
+	ok(w.c.Do(http.MethodPost, "/deposit-operations/"+op.ID+"/cancel", map[string]any{"reason": "Ошибка"}))
+	at("2026-10-31")
 
 	r := w.c.Do(http.MethodPost, "/contracts/"+id+"/documents/reconciliation-act", map[string]any{"from": "2026-10-01", "to": "2026-10-31"})
 	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
@@ -310,13 +381,13 @@ func TestReconciliationAct_FR04_1(t *testing.T) {
 	assert.Contains(t, html, "Сальдо на 01.10.2026: переплата Нанимателя 2 000,00 руб.")
 	assert.Contains(t, html, "по договору найма жилого помещения №", "вид договора после «по» — в дательном падеже")
 	assert.Contains(t, html, "Плата за наём, октябрь 2026")
-	assert.Contains(t, html, "Оплата, квитанция КВ-2026-00002")
-	assert.Contains(t, html, "<td>20.10.2026</td><td>Перенос переплаты в обеспечительный платёж</td><td class=\"num\">2 000,00</td><td class=\"num\"></td>")
+	assert.Contains(t, html, "Оплата, квитанция "+*pay2.ReceiptNumber)
+	assert.Contains(t, html, "<td>05.10.2026</td><td>Перенос переплаты в обеспечительный платёж</td><td class=\"num\">2 000,00</td><td class=\"num\"></td>")
 	assert.Contains(t, html, "<td>Удержание из обеспечительного платежа: Ремонт двери</td><td class=\"num\">3 000,00</td><td class=\"num\">3 000,00</td>")
 	assert.NotContains(t, html, "Отменённое удержание")
-	assert.NotContains(t, html, "КВ-2026-00009", "отменённый платёж не попадает")
-	assert.NotContains(t, html, "5 000,00", "незавершённая онлайн-оплата не попадает")
-	assert.NotContains(t, html, "КВ-2026-00001", "платёж до периода — только в сальдо")
+	assert.NotContains(t, html, *pay3.ReceiptNumber, "отменённый платёж не попадает")
+	assert.Equal(t, 1, strings.Count(html, "Оплата, квитанция"), "незавершённая онлайн-оплата не попадает")
+	assert.NotContains(t, html, *pay1.ReceiptNumber, "платёж до периода — только в сальдо")
 	// Октябрь: −2 000 + 28 000 + 2 000 (перенос) − 10 000 → задолженность 18 000; удержание сальдо не меняет.
 	assert.Contains(t, html, "Сальдо на 31.10.2026: задолженность Нанимателя 18 000,00 руб.")
 	// Залог: 28 000 + 2 000 − 3 000 = 27 000.
@@ -375,6 +446,8 @@ func TestConsentForm_FR04_1(t *testing.T) {
 	assert.Contains(t, html, "паспорт гражданина Российской Федерации 45 18 № 123456, выдан ГУ МВД России по г. Москве, "+
 		"дата выдачи 20.05.2018, код подразделения 770-001")
 	assert.Contains(t, html, "направление сообщений о свободных объектах")
+	assert.Contains(t, html, "даю согласие оператору персональных данных (Индивидуальный предприниматель Гордейчик "+
+		"Александр Васильевич, ОГРНИП 317502400029263, адрес: Московская область, г. Руза)", "№ 44, миграция 0006")
 	assert.Contains(t, html, "не более 3 лет после окончания последнего договора")
 
 	r = w.c.Do(http.MethodPost, "/tenants", map[string]any{

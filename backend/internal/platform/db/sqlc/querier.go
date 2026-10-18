@@ -76,6 +76,8 @@ type Querier interface {
 	ContractDebtsToday(ctx context.Context, today date.Date) ([]ContractDebtsTodayRow, error)
 	// Сформирован ли документ договора не раньше момента since (05 разд. 4.4, п. 7).
 	ContractDocumentSince(ctx context.Context, arg ContractDocumentSinceParams) (bool, error)
+	// Данные последнего документа договора, сформированного до первого продления (№ 35).
+	ContractDocumentSnapshotBefore(ctx context.Context, arg ContractDocumentSnapshotBeforeParams) ([]byte, error)
 	// Договор объекта (не черновик), срок которого пересекает месяц; при нескольких — начавшийся позже.
 	ContractForPropertyMonth(ctx context.Context, arg ContractForPropertyMonthParams) (Contract, error)
 	// Плановые рассылки (07 Фоновые задачи, 8–10; 10 Уведомления, раздел 2)
@@ -184,6 +186,8 @@ type Querier interface {
 	// Утренняя сводка собственнику
 	// Договоры с просроченным долгом основного долга.
 	DigestOverdue(ctx context.Context, today date.Date) ([]DigestOverdueRow, error)
+	// Чеки в очереди дольше часа (касса недоступна, № 63) — по часам сервера БД, как технические интервалы.
+	DigestQueuedFiscal(ctx context.Context) (int64, error)
 	// Начисления основного долга с долгом и сроком оплаты @due_date (напоминание об оплате).
 	DueMainCharges(ctx context.Context, dueDate date.Date) ([]DueMainChargesRow, error)
 	// Возможный дубль (05 разд. 15.1, шаг 5): проведённый ручной или онлайн-платёж договора с той же суммой,
@@ -203,6 +207,8 @@ type Querier interface {
 	FinishContract(ctx context.Context, arg FinishContractParams) (Contract, error)
 	FinishJobRun(ctx context.Context, arg FinishJobRunParams) error
 	FinishWebhookEvent(ctx context.Context, arg FinishWebhookEventParams) error
+	// Первое подписанное допсоглашение о продлении договора (№ 35).
+	FirstExtension(ctx context.Context, contractID uuid.UUID) (FirstExtensionRow, error)
 	FirstStatusDates(ctx context.Context) ([]FirstStatusDatesRow, error)
 	// Данные для чека: платёж, договор, наниматель, объект.
 	FiscalPaymentContext(ctx context.Context, id uuid.UUID) (FiscalPaymentContextRow, error)
@@ -400,8 +406,9 @@ type Querier interface {
 	MarkFilesDeleted(ctx context.Context, arg MarkFilesDeletedParams) error
 	// Договоры (кроме черновиков) с данными нанимателя для сопоставления строк выписки (05 разд. 15.1).
 	MatchContracts(ctx context.Context) ([]MatchContractsRow, error)
-	// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях).
-	MeterContracts(ctx context.Context, today date.Date) ([]MeterContractsRow, error)
+	// Действующие договоры с ЖКУ по счётчикам (напоминание о показаниях), у которых за месяц не по всем счётчикам
+	// объекта переданы или приняты показания (№ 79).
+	MeterContracts(ctx context.Context, arg MeterContractsParams) ([]MeterContractsRow, error)
 	MeterHasReadings(ctx context.Context, meterID uuid.UUID) (bool, error)
 	MonthReadingExists(ctx context.Context, arg MonthReadingExistsParams) (bool, error)
 	// Показания счётчиков (FR-05.5).
@@ -486,8 +493,9 @@ type Querier interface {
 	// Повтор чека с ошибкой: запрос формируется заново (данные нанимателя могли быть исправлены).
 	RequeueFiscal(ctx context.Context, id uuid.UUID) (FiscalReceipt, error)
 	ResolveDiscrepancy(ctx context.Context, arg ResolveDiscrepancyParams) (Discrepancy, error)
-	// Наниматели без договоров draft/active/extended, у которых последний фактический конец договора + срок хранения
-	// раньше сегодняшнего дня; ещё не обезличенные.
+	// Ещё не обезличенные наниматели, у которых истёк срок хранения (дата + срок раньше сегодняшнего дня):
+	// с договорами (кроме черновиков), все не draft/active/extended, — от последнего фактического конца договора;
+	// без договоров — от создания нанимателя, только с черновиками — от последнего изменения черновика (№ 105).
 	RetentionCandidates(ctx context.Context, arg RetentionCandidatesParams) ([]uuid.UUID, error)
 	// Отмена платежа из выписки: строка снова «не опознана» (05 разд. 10.5).
 	ReturnBankLineToUnmatched(ctx context.Context, id uuid.UUID) error
@@ -541,6 +549,10 @@ type Querier interface {
 	SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error
 	// Пересчёт хеша с новыми параметрами argon2id при входе.
 	SetUserPasswordHash(ctx context.Context, arg SetUserPasswordHashParams) error
+	// Черновик допсоглашения становится виден нанимателю при подписании (№ 43).
+	ShowAmendmentDocuments(ctx context.Context, amendmentID *uuid.UUID) error
+	// Проект договора становится виден нанимателю при активации (docs/open-questions.md, № 43).
+	ShowContractDocuments(ctx context.Context, contractID *uuid.UUID) error
 	SignAct(ctx context.Context, arg SignActParams) (ContractAct, error)
 	SignAmendment(ctx context.Context, arg SignAmendmentParams) (ContractAmendment, error)
 	// fiscal.reconcile: чеки в queued дольше 5 минут.
@@ -554,6 +566,8 @@ type Querier interface {
 	StatusHistoryFrom(ctx context.Context, arg StatusHistoryFromParams) ([]PropertyStatusHistory, error)
 	// Интервалы истории статусов, пересекающиеся с периодом (05 разд. 2.2).
 	StatusHistoryInRange(ctx context.Context, arg StatusHistoryInRangeParams) ([]StatusHistoryInRangeRow, error)
+	// fiscal.reconcile: чеки в queued дольше суток — письмо собственникам (№ 63); queued_since — начало ожидания.
+	StuckQueuedFiscal(ctx context.Context) ([]StuckQueuedFiscalRow, error)
 	SucceedPayment(ctx context.Context, arg SucceedPaymentParams) (Payment, error)
 	// Повторное формирование: прежние документы того же предмета получают ссылку на новый.
 	SupersedeDocuments(ctx context.Context, arg SupersedeDocumentsParams) error

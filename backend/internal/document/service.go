@@ -172,8 +172,9 @@ func (s *Service) ContractDocumentTx(ctx context.Context, tx *db.Tx, contractID 
 	} else {
 		title += " (проект)"
 	}
+	// Проект договора нанимателю не виден до активации (№ 43).
 	return s.generate(ctx, tx, subject{kind: cc.kindCh, number: &cc.c.Number, title: title, contractID: &cc.c.ID,
-		visibleToTenant: true}, d)
+		visibleToTenant: cc.c.Status != "draft"}, d)
 }
 
 // ContractDocument — то же в собственной транзакции.
@@ -261,7 +262,7 @@ func (s *Service) AmendmentDocument(ctx context.Context, id uuid.UUID) (sqlc.Doc
 		number := fmt.Sprintf("%s/ДС-%d", cc.c.Number, a.Number)
 		title := fmt.Sprintf("Дополнительное соглашение № %d к договору № %s", a.Number, cc.c.Number)
 		doc, err = s.generate(ctx, tx, subject{kind: KindAmendment, number: &number, title: title, contractID: &cc.c.ID,
-			amendmentID: &a.ID, visibleToTenant: true}, d)
+			amendmentID: &a.ID, visibleToTenant: a.Status == "signed"}, d) // черновик нанимателю не виден (№ 43)
 		return err
 	})
 	return doc, err

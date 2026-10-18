@@ -276,6 +276,9 @@ func (s *Service) SignAmendment(ctx context.Context, id uuid.UUID, signedOn date
 				return err
 			}
 		}
+		if err := tx.Q.ShowAmendmentDocuments(ctx, &a.ID); err != nil {
+			return err
+		}
 		return s.audit.Record(ctx, tx.Q, audit.Entry{
 			Action: "amendment.sign", EntityType: "amendment", EntityID: id.String(),
 			Summary: fmt.Sprintf("Договор № %s: подписано допсоглашение № %d (%s) от %s", c.Number, a.Number, amendTitles[a.Kind], signedOn.Format()),
