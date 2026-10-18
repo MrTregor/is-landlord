@@ -4,7 +4,7 @@ name: landlord-dev
 
 services:
   postgres:
-    build: { context: ./deploy, dockerfile: postgres-dev.Dockerfile }
+    build: { context: ./deploy, dockerfile: postgres.Dockerfile }
     image: landlord-postgres:dev
     environment:
       POSTGRES_DB: landlord

@@ -16,6 +16,7 @@ import (
 
 	"landlord/backend/internal/app"
 	"landlord/backend/internal/config"
+	"landlord/backend/internal/dbdoc"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/jobs"
 	"landlord/backend/internal/platform/logging"
@@ -33,6 +34,7 @@ const usage = `Использование: cli <команда>
   seed --demo [--load]                            очистить бизнес-данные и загрузить демо (--load — ещё 100 объектов
                                                   для нагрузочного теста), docs/spec/17 Демо-данные.md
   jobs run <имя>                                  выполнить ежедневную задачу за сегодня (например, billing.rent_daily)
+  docs db                                         описание БД в Markdown (docs/database.md) в стандартный вывод
 `
 
 func main() {
@@ -91,6 +93,12 @@ func run(args []string, out io.Writer) error {
 			return errors.New("укажите jobs run <имя>")
 		}
 		return runJob(ctx, args[2], out)
+	case "docs":
+		if len(args) != 2 || args[1] != "db" {
+			fmt.Fprint(out, usage)
+			return errors.New("укажите docs db")
+		}
+		return docsDB(ctx, out)
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usage)
 		return nil
@@ -197,4 +205,18 @@ func runJob(ctx context.Context, name string, out io.Writer) error {
 		return err
 	}
 	return fmt.Errorf("неизвестная ежедневная задача %q", name)
+}
+
+// docsDB — cli docs db: описание БД из каталога PostgreSQL (18 Развёртывание, раздел 10).
+func docsDB(ctx context.Context, out io.Writer) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	database, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	return dbdoc.Generate(ctx, database.Queries(), out)
 }

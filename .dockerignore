@@ -1,0 +1,7 @@
+# Контекст сборки образа landlord-web (frontend/Dockerfile): только фронтенд и Caddyfile.
+*
+!frontend/
+!deploy/Caddyfile
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/

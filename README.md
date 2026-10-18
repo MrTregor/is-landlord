@@ -10,7 +10,9 @@
 | `backend/` | Go: `server` (HTTP API), `worker` (фоновые задачи River), `cli` (миграции и служебные команды) |
 | `frontend/` | Vue 3 + TypeScript + PrimeVue 4.5: рабочее место собственника и кабинет нанимателя |
 | `mocks/tbank`, `mocks/atol` | Эмуляторы Т-Банк эквайринга и АТОЛ Онлайн |
-| `deploy/` | Скрипты базы данных и развёртывания |
+| `deploy/` | Caddyfile, образ PostgreSQL с ролями, `restore.sh`, `backup-files.sh` |
+| `tests/e2e`, `tests/load` | Сквозные сценарии Playwright (E2E-1…E2E-8) и нагрузочный тест k6 |
+| `docs/` | Руководства собственника и нанимателя, `deploy.md`, `database.md`, тест-кейсы и отчёт о тестировании |
 
 ## Быстрый старт (разработка)
 Нужны Go ≥ 1.26, Node.js ≥ 22, Docker Desktop (Compose v2), GNU make и POSIX-оболочка (на Windows — Git Bash).
@@ -47,3 +49,15 @@ make dev
 
 Инструменты генерации и проверки (oapi-codegen, sqlc, golangci-lint, air, govulncheck) зафиксированы в
 `backend/tools/go.mod` и запускаются через `go tool`; отдельно их ставить не нужно.
+
+## Сервер и испытания
+| Команда | Действие |
+|---|---|
+| `make build` | Образы `landlord-backend`, `landlord-web`, `landlord-postgres`, эмуляторов (`VERSION`, по умолчанию `dev`) |
+| `make e2e` | Стек demo (`docker-compose.prod.yml --profile demo`, переменные `tests/e2e/e2e.env`, https://localhost) и Playwright |
+| `make load` | Тот же стек, `seed --demo --load` и k6 (`tests/load/mixed.js`); итоги — `tests/load/summary.*` |
+| `make e2e-down` | Остановить стек demo и удалить его тома |
+| `make docs-db` | Описание БД `docs/database.md` из схемы (`cli docs db`) |
+
+Стек demo занимает порты 80, 443, 8081, 8082, 8025 — окружение разработки на это время остановить (`make down`).
+Установка на сервер, резервное копирование и восстановление — [`docs/deploy.md`](docs/deploy.md).

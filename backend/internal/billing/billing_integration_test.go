@@ -468,8 +468,8 @@ func TestUtilitiesFixedPartFirstMonth_FR05_5(t *testing.T) {
 	assert.Equal(t, int64(19030+24000), dec.UtilitiesCharge.AmountKop, "3,5 м³ × 54,37 = 190,30 и фиксированная часть 240,00")
 }
 
-// Ручное начисление, корректировка и отмена (14 разд. 5, FR-05).
-func TestManualChargeAdjustCancel_FR05(t *testing.T) {
+// Ручное начисление, корректировка и отмена (14 разд. 5, FR-05); журнал корректировки (ТК-28).
+func TestManualChargeAdjustCancel_TK28_FR05_FR12_1(t *testing.T) {
 	w := setup(t, "2026-10-16", "g7")
 	id := w.contract(t, "2026-10-01", "2027-08-31", 3000000, nil)
 	r := w.c.Do(http.MethodPost, "/charges", map[string]any{"contractId": id, "kind": "damage", "title": "Разбитое стекло", "amountKop": 500000, "dueDate": "2026-10-30", "reason": "Акт осмотра"})
@@ -480,6 +480,25 @@ func TestManualChargeAdjustCancel_FR05(t *testing.T) {
 	var c charge
 	r.JSON(t, &c)
 	assert.Equal(t, int64(400000), c.AmountKop)
+
+	// ТК-28: в журнале — запись корректировки со значениями «до» и «после», цепочка не нарушена (FR-12.1).
+	var log struct {
+		Items []struct {
+			Action string         `json:"action"`
+			Before map[string]any `json:"before"`
+			After  map[string]any `json:"after"`
+		} `json:"items"`
+	}
+	w.c.Do(http.MethodGet, "/audit?entityType=charge&entityId="+cid+"&action=charge.adjust", nil).JSON(t, &log)
+	require.Len(t, log.Items, 1)
+	assert.EqualValues(t, 500000, log.Items[0].Before["amountKop"])
+	assert.EqualValues(t, 400000, log.Items[0].After["amountKop"])
+	var verify struct {
+		Ok bool `json:"ok"`
+	}
+	w.c.Do(http.MethodGet, "/audit/verify", nil).JSON(t, &verify)
+	assert.True(t, verify.Ok)
+
 	r = w.c.Do(http.MethodPost, "/charges/"+cid+"/adjust", map[string]any{"deltaKop": -500000, "reason": "Ошибка"})
 	assert.Equal(t, http.StatusUnprocessableEntity, r.Status)
 	r = w.c.Do(http.MethodPost, "/charges/"+cid+"/cancel", map[string]any{"reason": "Возместил сам"})

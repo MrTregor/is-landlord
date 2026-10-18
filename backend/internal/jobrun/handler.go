@@ -171,7 +171,8 @@ func (h *Handler) ListBackups(context.Context, api.ListBackupsRequestObject) (ap
 		return nil, err
 	}
 	for _, e := range entries {
-		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		// Только обычные файлы: ссылки landlord-latest.sql.gz контейнера backup указывают на ту же копию.
+		if !e.Type().IsRegular() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		info, err := e.Info()

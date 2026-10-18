@@ -16,5 +16,9 @@ tests/e2e/playwright-report/
 !.vscode/extensions.json
 
 
+# Итоги нагрузочного теста k6 (make load) — переносятся в docs/test-report.md
+tests/load/summary.json
+tests/load/summary.txt
+
 # Документация хранится вне репозитория
 docs/

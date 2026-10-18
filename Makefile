@@ -14,7 +14,7 @@ COMPOSE ?= docker compose
 GENERATED := backend/internal/api backend/internal/platform/db/sqlc frontend/src/api/schema.d.ts
 
 .PHONY: help dev up down migrate migrate-down migrate-status seed gen gen-api gen-db check-gen \
-        test test-backend test-mocks test-frontend cover bench lint vuln check build e2e load
+        test test-backend test-mocks test-frontend cover bench lint vuln check build e2e e2e-up e2e-down load docs-db
 
 help:
 	@echo "make dev      — окружение разработки: контейнеры, миграции, server, worker, Vite"
@@ -23,6 +23,8 @@ help:
 	@echo "make lint     — golangci-lint, eslint, vue-tsc, prettier"
 	@echo "make check    — gen + lint + test + проверка зависимостей; после gen нет изменений в git"
 	@echo "make migrate  — применить миграции; make migrate-down — откатить последнюю"
+	@echo "make build    — образы сервера; make e2e — стек demo и Playwright; make load — k6"
+	@echo "make docs-db  — описание БД docs/database.md"
 
 .env:
 	cp .env.example .env
@@ -112,13 +114,41 @@ vuln:
 check: gen lint test vuln check-gen
 
 # ---------------------------------------------------------------- Сборка и испытания
+# Образы сервера (docs/spec/18, раздел 2). VERSION — по умолчанию dev (make build VERSION=$$(git rev-parse --short HEAD)).
 build:
 	docker build -t landlord-backend:$(VERSION) backend
+	docker build -t landlord-web:$(VERSION) -f frontend/Dockerfile .
+	docker build -t landlord-postgres:$(VERSION) -f deploy/postgres.Dockerfile deploy
 	docker build -t landlord-tbank-mock:$(VERSION) mocks/tbank
 	docker build -t landlord-atol-mock:$(VERSION) mocks/atol
 
-e2e:
-	@echo "Сквозные тесты Playwright (tests/e2e) появятся на этапе M15"; exit 1
+# Стек demo для сквозных и нагрузочных тестов: проект landlord-e2e, порты 80, 443, 8081, 8082, 8025
+# (окружение разработки make dev на время испытаний остановить: make down).
+E2E_COMPOSE = $(COMPOSE) -f docker-compose.prod.yml --env-file tests/e2e/e2e.env --profile demo
 
-load:
-	@echo "Нагрузочные сценарии k6 (tests/load) появятся на этапе M15"; exit 1
+e2e-up: build
+	$(E2E_COMPOSE) up -d
+	@for i in $$(seq 1 60); do curl -fsk https://localhost/api/v1/readyz >/dev/null 2>&1 && exit 0; sleep 2; done; \
+		echo "Сервер не ответил на /api/v1/readyz"; exit 1
+
+e2e-down:
+	$(E2E_COMPOSE) down -v
+
+# Демо-данные загружаются заново перед каждым файлом сценариев (tests/e2e/support/stack.ts).
+e2e: e2e-up
+	cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test
+
+# Нагрузка (docs/spec/16, раздел 5): демо-данные с --load, затем k6 в сетевом пространстве контейнера web.
+# Сценарий передаётся через stdin, итоги забираются docker cp: Docker Desktop на Windows не монтирует каталоги
+# с кириллицей в пути (docs/open-questions.md, № 9). Итоги — tests/load/summary.json и tests/load/summary.txt.
+load: e2e-up
+	MSYS_NO_PATHCONV=1 $(E2E_COMPOSE) exec -T server /app/cli seed --demo --load
+	-docker rm -f landlord-k6 >/dev/null 2>&1
+	MSYS_NO_PATHCONV=1 docker run -i --name landlord-k6 --network container:landlord-e2e-web-1 grafana/k6:1.3.0 \
+		run --quiet --summary-export /tmp/summary.json - < tests/load/mixed.js > tests/load/summary.txt; \
+		status=$$?; cat tests/load/summary.txt; docker cp landlord-k6:/tmp/summary.json tests/load/summary.json; \
+		docker rm landlord-k6 >/dev/null; exit $$status
+
+# Описание БД из схемы и комментариев COMMENT ON (docs/spec/18, раздел 10).
+docs-db: .env
+	$(LOADENV) cd backend && $(GO) run ./cmd/cli docs db > ../docs/database.md

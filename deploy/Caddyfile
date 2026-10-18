@@ -1,0 +1,21 @@
+# Caddy: HTTPS, статика фронтенда, прокси /api (docs/spec/18 Развёртывание и эксплуатация.md, раздел 5).
+# Для APP_DOMAIN=localhost Caddy выпускает локальный сертификат (проверка на ноутбуке, E2E).
+{$APP_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+	handle /api/* {
+		reverse_proxy server:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,137 @@
+# Сервер «Наймодателя» (docs/spec/18 Развёртывание и эксплуатация.md, раздел 3; инструкция — docs/deploy.md).
+#   make build
+#   docker compose -f docker-compose.prod.yml [--profile demo] up -d
+# Значения берутся из .env (cp .env.example .env). Адреса внутри сети контейнеров (база, Gotenberg, каталоги)
+# задаются здесь и перекрывают значения .env для разработки. ENV_FILE — другой файл переменных (make e2e).
+name: ${COMPOSE_PROJECT_NAME:-landlord}
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: 10m, max-file: "5" }
+
+x-backend: &backend
+  image: landlord-backend:${VERSION:-dev}
+  env_file: ${ENV_FILE:-.env}
+  environment: &backend-env
+    DATABASE_URL: "host=postgres port=5432 dbname=landlord user=landlord_app password='${DB_APP_PASSWORD}' sslmode=disable"
+    DATABASE_MIGRATE_URL: "host=postgres port=5432 dbname=landlord user=landlord_owner password='${DB_OWNER_PASSWORD}' sslmode=disable"
+    HTTP_ADDR: ":8080"
+    GOTENBERG_URL: http://gotenberg:3000
+    FILES_DIR: /data/files
+    BACKUPS_DIR: /backups/daily
+    COOKIE_SECURE: "true"
+    TZ: Europe/Moscow
+  logging: *logging
+
+services:
+  postgres:
+    # Скрипт ролей deploy/db-init/01-roles.sh встроен в образ (docs/open-questions.md, № 9).
+    build: { context: ./deploy, dockerfile: postgres.Dockerfile }
+    image: landlord-postgres:${VERSION:-dev}
+    environment:
+      POSTGRES_DB: landlord
+      POSTGRES_USER: landlord_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
+      LANDLORD_APP_PASSWORD: ${DB_APP_PASSWORD}
+      TZ: Europe/Moscow
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U landlord_owner -d landlord"], interval: 5s, retries: 20 }
+    logging: *logging
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    command: ["/app/cli", "migrate", "up"]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  server:
+    <<: *backend
+    command: ["/app/server"]
+    volumes: ["files:/data/files", "backups:/backups:ro"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gotenberg: { condition: service_started }
+    restart: unless-stopped
+
+  worker:
+    <<: *backend
+    command: ["/app/worker"]
+    volumes: ["files:/data/files"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      gotenberg: { condition: service_started }
+    restart: unless-stopped
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    command: ["gotenberg", "--chromium-disable-javascript=true", "--api-timeout=30s"]
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    image: landlord-web:${VERSION:-dev}
+    ports: ["80:80", "443:443"]
+    environment: { APP_DOMAIN: "${APP_DOMAIN}" }
+    volumes: ["caddy_data:/data", "caddy_config:/config"]
+    depends_on: [server]
+    logging: *logging
+    restart: unless-stopped
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:18
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: landlord
+      POSTGRES_USER: landlord_owner
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD}
+      SCHEDULE: "0 2 * * *"
+      BACKUP_KEEP_DAYS: 30
+      BACKUP_KEEP_WEEKS: 0
+      BACKUP_KEEP_MONTHS: 0
+      # Вся база, с расширениями (citext, btree_gist): по умолчанию образ копирует только схему public без них.
+      POSTGRES_EXTRA_OPTS: "-Z6"
+      TZ: Europe/Moscow
+    volumes: ["backups:/backups"]
+    depends_on: { postgres: { condition: service_healthy } }
+    logging: *logging
+    restart: unless-stopped
+
+  tbank-mock:
+    profiles: ["demo"]
+    image: landlord-tbank-mock:${VERSION:-dev}
+    environment:
+      MOCK_PUBLIC_URL: "http://${APP_DOMAIN}:8081"
+      TERMINALS: "${TBANK_TERMINAL_KEY}:${TBANK_PASSWORD}"
+      STATE_FILE: /data/tbank-state.json
+      TZ: Europe/Moscow
+    ports: ["8081:8081"]
+    volumes: ["mockdata:/data"]
+    logging: *logging
+    restart: unless-stopped
+
+  atol-mock:
+    profiles: ["demo"]
+    image: landlord-atol-mock:${VERSION:-dev}
+    environment:
+      MOCK_PUBLIC_URL: "http://${APP_DOMAIN}:8082"
+      LOGIN: "${ATOL_LOGIN}"
+      PASSWORD: "${ATOL_PASSWORD}"
+      GROUP_CODE: "${ATOL_GROUP_CODE}"
+      STATE_FILE: /data/atol-state.json
+      TZ: Europe/Moscow
+    ports: ["8082:8082"]
+    volumes: ["mockdata:/data"]
+    logging: *logging
+    restart: unless-stopped
+
+  mailpit:
+    profiles: ["demo"]
+    image: axllent/mailpit:latest
+    environment: { MP_UI_AUTH: "demo:${MAILPIT_PASSWORD}", TZ: Europe/Moscow }
+    ports: ["8025:8025"]
+    logging: *logging
+    restart: unless-stopped
+
+volumes: { pgdata: {}, files: {}, backups: {}, caddy_data: {}, caddy_config: {}, mockdata: {} }

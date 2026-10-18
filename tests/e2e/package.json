@@ -1,0 +1,17 @@
+{
+  "name": "landlord-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Сквозные сценарии E2E-1…E2E-8 (docs/spec/16 Тестирование.md, раздел 4) на стеке demo",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "~1.56",
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9"
+  }
+}

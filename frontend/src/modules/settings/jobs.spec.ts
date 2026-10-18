@@ -9,6 +9,10 @@ describe('плановые задачи (07)', () => {
   })
   it('итоги запуска', () => {
     expect(statsText({ contracts: 12, created: 8, errors: ['x'] })).toBe('договоров 12, создано 8, ошибок 1')
+    expect(statsText({ sent: 1 })).toBe('отправлено 1')
+    expect(statsText({ reminders: 2, overdue: 1, already_sent: 3 })).toBe(
+      'напоминаний об оплате 2, писем о просрочке 1, уже отправлено ранее 3',
+    )
   })
 })
 

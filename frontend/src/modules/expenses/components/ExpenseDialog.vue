@@ -102,18 +102,22 @@ const contracts = useContracts(() => ({
   status: ['active', 'extended', 'terminated', 'finished'],
   pageSize: 100,
 }))
+// Только договоры выбранного объекта: пока объект не подставлен (или ответ ещё прежний — keepPreviousData),
+// в списке могут быть договоры других объектов.
+const propertyContracts = computed(() =>
+  form.propertyId ? (contracts.data.value?.items ?? []).filter((c) => c.property.id === form.propertyId) : [],
+)
 const contractOptions = computed(() =>
-  form.propertyId
-    ? (contracts.data.value?.items ?? []).map((c) => ({
-        value: c.id,
-        label: `№ ${c.number} — ${c.tenant.displayName}`,
-      }))
-    : [],
+  propertyContracts.value.map((c) => ({
+    value: c.id,
+    label: `№ ${c.number} — ${c.tenant.displayName}`,
+  })),
 )
 // Договор по умолчанию — действующий или последний по объекту (05 разд. 14.2).
 watch([contractOptions, needsContract], () => {
-  if (!needsContract.value || form.contractId) return
-  const items = contracts.data.value?.items ?? []
+  if (!needsContract.value) return
+  if (form.contractId && contractOptions.value.some((o) => o.value === form.contractId)) return
+  const items = propertyContracts.value
   const active = items.find((c) => c.status === 'active' || c.status === 'extended')
   form.contractId = (active ?? items[0])?.id ?? null
 })

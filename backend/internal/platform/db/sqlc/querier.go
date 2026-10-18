@@ -186,6 +186,12 @@ type Querier interface {
 	DigestOverdue(ctx context.Context, today date.Date) ([]DigestOverdueRow, error)
 	// Чеки в очереди дольше часа (касса недоступна, № 63) — по часам сервера БД, как технические интервалы.
 	DigestQueuedFiscal(ctx context.Context) (int64, error)
+	DocColumns(ctx context.Context) ([]DocColumnsRow, error)
+	DocConstraints(ctx context.Context) ([]DocConstraintsRow, error)
+	DocIndexes(ctx context.Context) ([]DocIndexesRow, error)
+	// Описание БД для docs/database.md (cli docs db, docs/spec/18 Развёртывание и эксплуатация.md, раздел 10).
+	// Таблицы схемы public, кроме служебных таблиц River и goose.
+	DocTables(ctx context.Context) ([]DocTablesRow, error)
 	// Начисления основного долга с долгом и сроком оплаты @due_date (напоминание об оплате).
 	DueMainCharges(ctx context.Context, dueDate date.Date) ([]DueMainChargesRow, error)
 	// Возможный дубль (05 разд. 15.1, шаг 5): проведённый ручной или онлайн-платёж договора с той же суммой,

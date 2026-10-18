@@ -20,9 +20,23 @@ const statTitles: Record<string, string> = {
   tokens: 'токенов удалено',
   loginAttempts: 'попыток входа удалено',
   files: 'файлов удалено',
+  underpaymentsClosed: 'недоплат закрыто',
+  reminders: 'напоминаний об оплате',
+  overdue: 'писем о просрочке',
+  letters: 'писем',
+  sent: 'отправлено',
+  already_sent: 'уже отправлено ранее',
+  disabled: 'письмо выключено',
+  empty: 'нет новостей',
+  payments: 'платежей проверено',
+  polls: 'запросов в кассу',
+  sends: 'отправок в кассу',
+  waiting: 'чеков в обработке',
+  queued: 'чеков в очереди',
+  stuckLetters: 'писем о зависших чеках',
 }
 
-/** Итоги запуска: «договоров 12, создано 8, ошибок 1». */
+/** Итоги запуска: «договоров 12, создано 8, ошибок 1». Ключи — счётчики jobs.Stats задач backend. */
 export function statsText(stats: Record<string, unknown>): string {
   const parts = Object.entries(stats)
     .filter(([k, v]) => k !== 'errors' && typeof v === 'number')

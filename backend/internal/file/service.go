@@ -192,7 +192,8 @@ func cleanName(name, ext string) string {
 		name = name[:len(name)-size]
 	}
 	lower := strings.ToLower(name)
-	hasExt := strings.HasSuffix(lower, "."+ext) || ext == "jpg" && strings.HasSuffix(lower, ".jpeg")
+	hasExt := strings.HasSuffix(lower, "."+ext) || ext == "jpg" && strings.HasSuffix(lower, ".jpeg") ||
+		ext == "txt" && strings.HasSuffix(lower, ".csv") // выписка CSV — текстовый файл со своим расширением
 	if !hasExt {
 		name += "." + ext
 	}
