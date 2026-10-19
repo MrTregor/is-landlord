@@ -30,10 +30,8 @@ test('E2E-7 сдвиг даты и ежедневные задачи: начис
   const applied = page.waitForResponse((r) => r.url().endsWith('/api/v1/dev/clock') && r.request().method() === 'PUT')
   await page.getByRole('button', { name: 'Применить' }).click()
   expect((await applied).ok()).toBeTruthy()
-  // Сеанс считается по часам системы: после сдвига на дни вперёд он истекает — вход заново.
-  await page.context().clearCookies()
-  await loginOwner(page)
-  await page.goto('/settings/service')
+  // Сеанс после сдвига даты сохраняется: его сроки считаются по реальному времени (№ 112).
+  await expect(page).toHaveURL(/\/settings\/service/)
   await expect(visibleText(page, `дата системы: ${ru(target)}`)).toBeVisible()
 
   await page.getByRole('button', { name: 'Выполнить ежедневные задачи' }).click()

@@ -43,13 +43,14 @@ func CleanupDaily() jobs.Daily {
 type Service struct {
 	db    *db.DB
 	clock clock.Clock
+	real  clock.Clock // сроки сеансов, токенов и попыток входа — по реальному времени (№ 112)
 	audit *audit.Service
 	store *files.Store
 }
 
 // NewService создаёт сервис.
-func NewService(database *db.DB, clk clock.Clock, au *audit.Service, store *files.Store) *Service {
-	return &Service{db: database, clock: clk, audit: au, store: store}
+func NewService(database *db.DB, clk, realClk clock.Clock, au *audit.Service, store *files.Store) *Service {
+	return &Service{db: database, clock: clk, real: realClk, audit: au, store: store}
 }
 
 // CleanupWorker выполняет maintenance.cleanup.
@@ -64,7 +65,8 @@ func (w *CleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) e
 	return err
 }
 
-// RunCleanup — maintenance.cleanup. Сроки — от Clock (сессии и токены выдаются по нему же).
+// RunCleanup — maintenance.cleanup. Сеансы, токены и попытки входа — по реальному времени (auth выдаёт их по нему же,
+// № 112); файлы без привязки — по Clock (по нему же отмечается их загрузка).
 func (s *Service) RunCleanup(ctx context.Context, args jobs.DailyArgs) (*jobs.Stats, error) {
 	today := args.BusinessDate
 	if today.IsZero() {
@@ -72,18 +74,18 @@ func (s *Service) RunCleanup(ctx context.Context, args jobs.DailyArgs) (*jobs.St
 		args.BusinessDate = today
 	}
 	return jobs.RunDaily(ctx, s.db, s.clock, CleanupJobName, args, func(ctx context.Context, st *jobs.Stats) error {
-		now := s.clock.Now()
+		now, realNow := s.clock.Now(), s.real.Now()
 		q := s.db.Queries()
-		n, err := q.DeleteExpiredSessions(ctx, now)
+		n, err := q.DeleteExpiredSessions(ctx, realNow)
 		if err != nil {
 			return err
 		}
 		st.Counts["sessions"] = int(n)
-		if n, err = q.DeleteExpiredAuthTokens(ctx, now); err != nil {
+		if n, err = q.DeleteExpiredAuthTokens(ctx, realNow); err != nil {
 			return err
 		}
 		st.Counts["tokens"] = int(n)
-		if n, err = q.DeleteOldLoginAttempts(ctx, now.Add(-30*24*time.Hour)); err != nil {
+		if n, err = q.DeleteOldLoginAttempts(ctx, realNow.Add(-30*24*time.Hour)); err != nil {
 			return err
 		}
 		st.Counts["loginAttempts"] = int(n)

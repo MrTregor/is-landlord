@@ -116,7 +116,7 @@ export async function apiPost(page: Page, path: string, data?: unknown, method: 
   return res.json()
 }
 
-/** Демо-режим: дата системы (собственник). */
+/** Демо-режим: дата системы (собственник). Сеанс сохраняется — его сроки идут по реальному времени (№ 112). */
 export const setSystemDate = (page: Page, iso: string) => apiPost(page, '/dev/clock', { today: iso }, 'PUT')
 
 /** Число из записи «1 234,567». */

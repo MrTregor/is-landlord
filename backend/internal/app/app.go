@@ -46,9 +46,12 @@ import (
 
 // App — сервисы модулей.
 type App struct {
-	Config    *config.Config
-	Log       *slog.Logger
-	Clock     clock.Clock
+	Config *config.Config
+	Log    *slog.Logger
+	Clock  clock.Clock
+	// RealClock — реальное время для технических сроков: сеансы, попытки входа, токены, журнал действий
+	// (12 Безопасность, разделы 1–2; № 112). Не зависит от даты системы демо-режима.
+	RealClock clock.Clock
 	DB        *db.DB
 	Jobs      *river.Client[pgx.Tx]
 	Audit     *audit.Service
@@ -86,6 +89,17 @@ type Options struct {
 	Kassa fiscal.Sender
 	// NoRateLimit — HTTP API без ограничения частоты (встроенный сервер cli seed).
 	NoRateLimit bool
+	// RealClock — реальные часы (тесты подставляют управляемые); по умолчанию — RealFor(clk).
+	RealClock clock.Clock
+}
+
+// RealFor — реальные часы при часах системы clk: в демо-режиме (clock.Offset) — реальное время без сдвига,
+// иначе — сами clk (в рабочем режиме это и есть реальное время).
+func RealFor(clk clock.Clock) clock.Clock {
+	if _, ok := clk.(*clock.Offset); ok {
+		return clock.NewReal(clk.Location())
+	}
+	return clk
 }
 
 // New собирает сервисы. Клиент River — только для постановки задач (InsertTx).
@@ -98,11 +112,15 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	if opt.Argon != nil {
 		argon = *opt.Argon
 	}
-	a := &App{Config: cfg, Log: log, Clock: clk, DB: database, Jobs: client, noRateLimit: opt.NoRateLimit}
-	a.Audit = audit.NewService(database, clk)
+	realClk := opt.RealClock
+	if realClk == nil {
+		realClk = RealFor(clk)
+	}
+	a := &App{Config: cfg, Log: log, Clock: clk, RealClock: realClk, DB: database, Jobs: client, noRateLimit: opt.NoRateLimit}
+	a.Audit = audit.NewService(database, realClk)
 	a.Notify = notify.NewService(cfg, clk, client)
 	a.Settings = settings.NewService(database, a.Audit, clk)
-	a.Auth = auth.NewService(database, cfg, clk, a.Audit, a.Notify, a.Settings, argon)
+	a.Auth = auth.NewService(database, cfg, realClk, a.Audit, a.Notify, a.Settings, argon)
 	a.Users = user.NewService(database, clk, a.Audit, a.Auth)
 	a.Files = file.NewService(database, cfg, clk)
 	a.Property = property.NewService(database, a.Audit, clk, a.Files)
@@ -135,7 +153,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 	a.Expenses = expense.NewService(database, a.Audit, clk, a.Billing, a.Payments)
 	a.Reports = report.NewService(database, clk, a.Settings, a.Calendar)
 	a.Mailing = mailing.NewService(database, a.Audit, clk, a.Notify, a.Settings, a.Calendar)
-	a.Cleanup = housekeeping.NewService(database, clk, a.Audit, a.Files.Store())
+	a.Cleanup = housekeeping.NewService(database, clk, realClk, a.Audit, a.Files.Store())
 	return a, nil
 }
 

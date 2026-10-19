@@ -46,8 +46,7 @@ func TestDemoClockAndRunDaily(t *testing.T) {
 	r.JSON(t, &c)
 	assert.Equal(t, "2026-11-01", c.Today)
 	assert.Equal(t, "2026-11-01", env.App.Clock.Today().String(), "часы приложения сдвинуты")
-	owner.Login("demo-clock@landlord.local", password)
-	r = owner.Do(http.MethodGet, "/dev/clock", nil)
+	r = owner.Do(http.MethodGet, "/dev/clock", nil) // сеанс тот же: сроки сеанса — по реальному времени (№ 112)
 	r.JSON(t, &c)
 	assert.Equal(t, "2026-11-01", c.Today)
 
@@ -126,4 +125,24 @@ func TestCleanup_NFR_Sec_01(t *testing.T) {
 	_, err = os.Stat(filepath.Join(env.App.Config.FilesDir, key))
 	assert.True(t, os.IsNotExist(err))
 	assert.Equal(t, http.StatusOK, owner.Do(http.MethodGet, "/auth/me", nil).Status, "действующая сессия не тронута")
+}
+
+// Сдвиг даты системы в демо на 19 дней вперёд и ежедневные задачи (с очисткой сеансов) не завершают сеанс:
+// сроки сеанса считаются по реальному времени (№ 112, NFR-Sec-01).
+func TestDemoDateShiftKeepsSession_NFR_Sec_01(t *testing.T) {
+	env := testsupport.NewDemoEnv(t, t.TempDir())
+	owner := env.ActiveOwner(t, "demo-session@landlord.local", password)
+	t.Cleanup(func() {
+		_, _ = testsupport.Owner(t).Exec(context.Background(), `UPDATE demo_clock SET offset_seconds = 0`)
+	})
+	target := env.App.RealClock.Today().AddDays(19).String()
+	r := owner.Do(http.MethodPut, "/dev/clock", map[string]any{"today": target})
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	assert.Equal(t, target, env.App.Clock.Today().String())
+	assert.Equal(t, http.StatusOK, owner.Do(http.MethodGet, "/auth/me", nil).Status, "сеанс после сдвига даты")
+	r = owner.Do(http.MethodPost, "/dev/run-daily", nil)
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	assert.Equal(t, http.StatusOK, owner.Do(http.MethodGet, "/auth/me", nil).Status, "сеанс после maintenance.cleanup")
+	r = owner.Do(http.MethodDelete, "/dev/clock", nil)
+	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
 }

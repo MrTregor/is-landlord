@@ -96,9 +96,12 @@ var FastArgon = crypto.Argon2Params{MemoryKiB: 1024, Time: 1, Threads: 1, SaltLe
 
 // Env — приложение для одного теста.
 type Env struct {
-	App    *app.App
-	Clock  *clock.Fixed
-	Server *httptest.Server
+	App   *app.App
+	Clock *clock.Fixed
+	// RealClock — «реальное время» сеансов, входа, токенов и журнала действий (№ 112): начинается с того же
+	// момента, что и Clock, но двигается отдельно (Clock.Set и Advance его не меняют). В NewDemoEnv — nil.
+	RealClock *clock.Fixed
+	Server    *httptest.Server
 	// PDF — подделка Gotenberg: запоминает HTML сформированных документов.
 	PDF *FakePDF
 	// Bank — подделка API Т-Банка.
@@ -151,6 +154,12 @@ func NewEnv(t testing.TB, today string) *Env {
 	return newEnv(t, func(*config.Config) {}, func(*config.Config, *db.DB) clock.Clock { return clk }, clk)
 }
 
+// AdvanceAll сдвигает и дату системы, и реальное время — как будто прошло d (истекают сеансы и ссылки).
+func (e *Env) AdvanceAll(d time.Duration) {
+	e.Clock.Advance(d)
+	e.RealClock.Advance(d)
+}
+
 // NewDemoEnv — приложение в режиме demo со сдвигаемыми часами (demo_clock, как в server и worker); Env.Clock = nil,
 // backupsDir — каталог резервных копий.
 func NewDemoEnv(t testing.TB, backupsDir string) *Env {
@@ -185,13 +194,19 @@ func newEnv(t testing.TB, tune func(*config.Config), newClock func(*config.Confi
 	clk := newClock(cfg, database)
 	log := slog.New(slog.NewTextHandler(tWriter{t}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	fake := &FakePDF{}
-	a, err := app.New(cfg, log, clk, database, app.Options{Argon: &FastArgon, PDF: fake})
+	var realClk *clock.Fixed
+	opt := app.Options{Argon: &FastArgon, PDF: fake}
+	if fixed != nil {
+		realClk = clock.NewFixed(fixed.Now(), fixed.Location())
+		opt.RealClock = realClk
+	}
+	a, err := app.New(cfg, log, clk, database, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(a.Server(okGotenberg{}).Handler())
 	t.Cleanup(srv.Close)
-	return &Env{App: a, Clock: fixed, Server: srv, PDF: fake, Bank: bank, Atol: kassa}
+	return &Env{App: a, Clock: fixed, RealClock: realClk, Server: srv, PDF: fake, Bank: bank, Atol: kassa}
 }
 
 type okGotenberg struct{}

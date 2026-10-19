@@ -105,7 +105,7 @@ func TestLoginLockout_IT09_NFR_Sec_01(t *testing.T) {
 		r := c.Do(http.MethodPost, "/auth/login", map[string]string{"email": "lock@landlord.local", "password": "неверный-1"})
 		require.Equal(t, http.StatusUnauthorized, r.Status, "попытка %d", i)
 		assert.Equal(t, "invalid_credentials", r.Code())
-		env.Clock.Advance(10 * time.Second)
+		env.RealClock.Advance(10 * time.Second)
 	}
 	r := c.Do(http.MethodPost, "/auth/login", map[string]string{"email": "lock@landlord.local", "password": "Верный-пароль-1"})
 	require.Equal(t, http.StatusTooManyRequests, r.Status)
@@ -118,7 +118,11 @@ func TestLoginLockout_IT09_NFR_Sec_01(t *testing.T) {
 		`SELECT count(*) FROM audit_log a JOIN users u ON u.id::text = a.entity_id WHERE a.action = 'auth.locked' AND u.email = 'lock@landlord.local'`).Scan(&locked))
 	assert.Equal(t, 1, locked)
 
-	env.Clock.Advance(15 * time.Minute)
+	// Блокировка считается по реальному времени (№ 112): сдвиг даты системы её не снимает.
+	env.Clock.Advance(24 * time.Hour)
+	r = c.Do(http.MethodPost, "/auth/login", map[string]string{"email": "lock@landlord.local", "password": "Верный-пароль-1"})
+	assert.Equal(t, http.StatusTooManyRequests, r.Status, "дата системы +1 день — блокировка действует")
+	env.RealClock.Advance(15 * time.Minute)
 	c.Login("lock@landlord.local", "Верный-пароль-1")
 }
 
@@ -172,13 +176,16 @@ func TestChangePassword_NFR_Sec_01(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, b.Do(http.MethodGet, "/auth/me", nil).Status)
 }
 
-// Простой сессии дольше 8 часов — выход.
+// Простой сессии дольше 8 часов — выход. Сроки сеанса — по реальному времени: сдвиг даты системы (демо) на 19 дней
+// сеанс не завершает (№ 112).
 func TestSessionIdleTimeout_NFR_Sec_01(t *testing.T) {
 	env := testsupport.NewEnv(t, "2026-10-16")
 	c := env.ActiveOwner(t, "idle@landlord.local", "Пароль-простоя-1")
-	env.Clock.Advance(7 * time.Hour)
+	env.Clock.Advance(19 * 24 * time.Hour)
+	assert.Equal(t, http.StatusOK, c.Do(http.MethodGet, "/auth/me", nil).Status, "дата системы +19 дней")
+	env.RealClock.Advance(7 * time.Hour)
 	assert.Equal(t, http.StatusOK, c.Do(http.MethodGet, "/auth/me", nil).Status)
-	env.Clock.Advance(8*time.Hour + time.Minute)
+	env.RealClock.Advance(8*time.Hour + time.Minute)
 	assert.Equal(t, http.StatusUnauthorized, c.Do(http.MethodGet, "/auth/me", nil).Status)
 }
 
