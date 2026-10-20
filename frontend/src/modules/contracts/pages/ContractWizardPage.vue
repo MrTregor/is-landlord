@@ -50,6 +50,8 @@ const saved = ref<ContractDetail | null>(null)
 
 const form = reactive<ContractForm>(emptyContractForm((route.query.propertyId as string | undefined) ?? null))
 const loaded = ref(!routeId.value)
+// Объявлен до watch с immediate: договор из кэша (переход с карточки) приходит сразу, во время setup.
+const firstDueTouched = ref(false)
 watch(
   () => existing.data.value,
   (d) => {
@@ -100,7 +102,6 @@ function tenantCreated(id: string) {
 }
 
 // Значения по умолчанию шага 2.
-const firstDueTouched = ref(false)
 watch(
   () => form.startDate,
   (s) => {
@@ -719,6 +720,11 @@ const steps = [
 :deep(.p-steplist) {
   flex-wrap: wrap;
   overflow: visible;
+}
+/* Белая подложка шага: у PrimeVue без внутренних отступов — поля упираются в край. Скругление — как у кнопок. */
+:deep(.p-steppanel) {
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--p-form-field-border-radius);
 }
 .row {
   display: flex;
