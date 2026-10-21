@@ -336,7 +336,7 @@ const onSubmit = handleSubmit(async (v) => {
       <Message v-if="serverError" severity="error" :closable="false">{{ serverError }}</Message>
       <div class="actions">
         <Button type="button" label="Отмена" outlined @click="router.back()" />
-        <Button type="submit" label="Сохранить" icon="pi pi-check" :loading="isSubmitting" />
+        <Button type="submit" label="Сохранить" :loading="isSubmitting" />
       </div>
     </form>
   </div>

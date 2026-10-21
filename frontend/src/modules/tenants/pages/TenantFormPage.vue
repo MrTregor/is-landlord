@@ -455,7 +455,7 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
       <Message v-if="serverError" severity="error" :closable="false">{{ serverError }}</Message>
       <div class="actions">
         <Button type="button" label="Отмена" outlined @click="embedded ? emit('cancel') : router.back()" />
-        <Button type="submit" label="Сохранить" icon="pi pi-check" :loading="saving" />
+        <Button type="submit" label="Сохранить" :loading="saving" />
       </div>
     </form>
   </div>

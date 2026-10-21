@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Вкладка «Условия» карточки договора (14 Экраны собственника, раздел 4.3, вкладка 1; 05 разд. 4.5).
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useContractMutations, type ContractDetail } from '@/api/queries/contracts'
 import DateInput from '@/components/DateInput.vue'
@@ -8,6 +8,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import { formatDate } from '@/utils/date'
 import { utilitiesModeLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 import { conditionsSchema, fieldErrors, pctToApi, pctToText, type OccupantRow } from '../schemas'
 
 const props = defineProps<{ contract: ContractDetail }>()
@@ -100,6 +101,7 @@ async function saveTexts() {
 
 // Регистрация договора.
 const reg = reactive({ doneOn: null as string | null, number: '' })
+const regState = useSaveState(() => reg)
 watch(
   c,
   (v) => {
@@ -109,17 +111,22 @@ watch(
   { immediate: true },
 )
 async function saveRegistration() {
+  regState.reset()
   try {
     await m.patch.mutateAsync({ registrationDoneOn: reg.doneOn, registrationNumber: reg.number.trim() })
+    await nextTick()
+    regState.saved()
     toast.add({ severity: 'success', summary: 'Регистрация отмечена', life: 3000 })
   } catch (err) {
     fail(err)
+    regState.failed()
   }
 }
 
 // Проживающие.
 const occupants = ref<OccupantRow[]>([])
 const occSubmitted = ref(false)
+const occState = useSaveState(() => occupants.value, 'Сохранить проживающих')
 watch(
   () => c.value.occupants,
   (list) => {
@@ -129,6 +136,7 @@ watch(
 )
 async function saveOccupants() {
   occSubmitted.value = true
+  occState.reset()
   if (occupants.value.some((o) => !o.fullName.trim())) return
   try {
     await m.occupants.mutateAsync({
@@ -139,9 +147,12 @@ async function saveOccupants() {
       })),
     })
     occSubmitted.value = false
+    await nextTick()
+    occState.saved()
     toast.add({ severity: 'success', summary: 'Проживающие сохранены', life: 3000 })
   } catch (err) {
     fail(err)
+    occState.failed()
   }
 }
 
@@ -229,7 +240,13 @@ const pctText = (v: string | null) => pctToText(v)
               <InputText id="r-number" v-model="reg.number" fluid :disabled="!live" />
             </div>
             <div v-if="live" class="actions">
-              <Button label="Сохранить" :loading="m.patch.isPending.value" @click="saveRegistration" />
+              <Button
+                :label="regState.button.value.label"
+                :icon="regState.button.value.icon"
+                :severity="regState.button.value.severity"
+                :loading="m.patch.isPending.value"
+                @click="saveRegistration"
+              />
             </div>
           </div>
         </template>
@@ -315,7 +332,13 @@ const pctText = (v: string | null) => pctToText(v)
             text
             @click="occupants.push({ fullName: '', birthDate: null, relation: '' })"
           />
-          <Button label="Сохранить проживающих" :loading="m.occupants.isPending.value" @click="saveOccupants" />
+          <Button
+            :label="occState.button.value.label"
+            :icon="occState.button.value.icon"
+            :severity="occState.button.value.severity"
+            :loading="m.occupants.isPending.value"
+            @click="saveOccupants"
+          />
         </div>
       </template>
     </Card>

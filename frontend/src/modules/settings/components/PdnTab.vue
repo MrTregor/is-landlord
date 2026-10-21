@@ -2,12 +2,13 @@
 // Настройки → ПДн (14 Экраны собственника, раздел 16.8): срок хранения, цель отдельного согласия,
 // политика обработки ПДн и её версия. «Опубликовать новую версию» увеличивает версию — наниматели
 // при следующем входе ознакомятся с ней заново.
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import RichTextEditor from '@/components/RichTextEditor.vue'
 import { toInput, useOrganizationSettings, useSaveOrganizationSettings } from '@/api/queries/settings'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 import { nextPolicyVersion, pdnSchema } from '../schemas'
 
 const settings = useOrganizationSettings()
@@ -20,6 +21,8 @@ const purpose = ref('')
 const html = ref('')
 const errors = ref<Record<string, string>>({})
 const serverError = ref<string | null>(null)
+// Состояние кнопки «Сохранить» — только для срока хранения и цели согласия; публикация политики — своя кнопка.
+const saveState = useSaveState(() => [retention.value, purpose.value])
 
 watch(
   () => settings.data.value,
@@ -38,6 +41,7 @@ const version = computed(() => settings.data.value?.privacyPolicyVersion ?? '1.0
 async function persist(publish: boolean) {
   if (!settings.data.value) return
   serverError.value = null
+  if (!publish) saveState.reset()
   const parsed = pdnSchema.safeParse({ pdnRetentionYears: retention.value, pdnConsentPurpose: purpose.value })
   errors.value = {}
   if (!parsed.success) {
@@ -51,6 +55,8 @@ async function persist(publish: boolean) {
       privacyPolicyHtml: publish ? html.value : settings.data.value.privacyPolicyHtml,
       privacyPolicyVersion: publish ? nextPolicyVersion(version.value) : version.value,
     })
+    await nextTick()
+    if (!publish) saveState.saved()
     toast.add({
       severity: 'success',
       summary: publish ? 'Опубликована новая версия политики' : 'Сохранено',
@@ -58,6 +64,7 @@ async function persist(publish: boolean) {
     })
   } catch (err) {
     serverError.value = parseProblem(err).message
+    if (!publish) saveState.failed()
   }
 }
 
@@ -100,7 +107,13 @@ function publish() {
       </div>
     </div>
     <div class="actions">
-      <Button label="Сохранить" icon="pi pi-check" :loading="save.isPending.value" @click="persist(false)" />
+      <Button
+        :label="saveState.button.value.label"
+        :icon="saveState.button.value.icon"
+        :severity="saveState.button.value.severity"
+        :loading="save.isPending.value"
+        @click="persist(false)"
+      />
     </div>
 
     <h3 id="pdn-policy-title" class="subtitle">Политика обработки персональных данных · версия {{ version }}</h3>

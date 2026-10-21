@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Профиль нанимателя (15 Экраны нанимателя, раздел 8): имя и e-mail (только чтение), телефон, смена пароля,
 // политика и дата ознакомления, отдельное согласие на обработку ПДн (дать / отозвать), контакты организации, выход.
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useCabinetProfile, useCabinetProfileMutations } from '@/api/queries/cabinet'
@@ -10,6 +10,7 @@ import { useSessionStore } from '@/app/session'
 import { formatDate, formatDateTime } from '@/utils/date'
 import { formatPhone, normalizePhone } from '@/utils/phone'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 
 const router = useRouter()
 const toast = useToast()
@@ -20,6 +21,8 @@ const p = profile.data
 
 const phone = ref('')
 const phoneError = ref<string | null>(null)
+// Номер после сохранения возвращается отформатированным — сравнивается нормализованное значение.
+const phoneState = useSaveState(() => normalizePhone(phone.value.trim()) ?? phone.value.trim())
 watch(
   () => p.value?.phone,
   (v) => {
@@ -30,6 +33,7 @@ watch(
 
 async function savePhone() {
   phoneError.value = null
+  phoneState.reset()
   const raw = phone.value.trim()
   const next = raw ? normalizePhone(raw) : null
   if (raw && !next) {
@@ -38,10 +42,13 @@ async function savePhone() {
   }
   try {
     await m.phone.mutateAsync(next)
+    await nextTick()
+    phoneState.saved()
     toast.add({ severity: 'success', summary: 'Телефон сохранён', life: 3000 })
   } catch (e) {
     const pr = parseProblem(e)
     phoneError.value = pr.fieldErrors.phone ?? pr.message
+    phoneState.failed()
   }
 }
 
@@ -113,7 +120,15 @@ async function logout() {
               :invalid="!!phoneError"
               fluid
             />
-            <Button type="submit" label="Сохранить" outlined :loading="m.phone.isPending.value" class="touch" />
+            <Button
+              type="submit"
+              :label="phoneState.button.value.label"
+              :icon="phoneState.button.value.icon"
+              :severity="phoneState.button.value.severity"
+              :outlined="phoneState.state.value === 'idle'"
+              :loading="m.phone.isPending.value"
+              class="touch"
+            />
           </div>
           <small v-if="phoneError" class="error">{{ phoneError }}</small>
         </form>

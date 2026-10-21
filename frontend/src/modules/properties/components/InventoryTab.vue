@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // Опись имущества — редактируемая таблица (14 Экраны собственника, раздел 2.3, вкладка 7).
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { fetchInventory, usePropertyMutations, usePropertySub } from '@/api/queries/properties'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 
 const props = defineProps<{ propertyId: string }>()
 const inv = usePropertySub(() => props.propertyId, 'inventory', fetchInventory)
@@ -22,6 +23,11 @@ let seq = 0
 const rows = ref<Row[]>([])
 const dirty = ref(false)
 const error = ref<string | null>(null)
+// Ключи строк и id новых строк меняются при повторной загрузке — для состояния кнопки сравниваются только данные.
+const saveState = useSaveState(
+  () => rows.value.map((r) => [r.name, r.quantity, r.condition, r.note]),
+  'Сохранить опись',
+)
 
 watch(
   () => inv.data.value,
@@ -58,6 +64,7 @@ function move(i: number, d: number) {
 
 async function save() {
   error.value = null
+  saveState.reset()
   const bad = rows.value.findIndex((r) => !r.name.trim() || !r.condition.trim() || r.quantity < 1)
   if (bad >= 0) {
     error.value = `Строка ${bad + 1}: укажите наименование, количество и состояние`
@@ -73,9 +80,12 @@ async function save() {
         note: r.note.trim() || null,
       })),
     })
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: 'Опись сохранена', life: 3000 })
   } catch (err) {
     error.value = parseProblem(err).message
+    saveState.failed()
   }
 }
 </script>
@@ -151,9 +161,10 @@ async function save() {
     <div class="actions">
       <Button label="Добавить строку" icon="pi pi-plus" outlined @click="add" />
       <Button
-        label="Сохранить опись"
-        icon="pi pi-check"
-        :disabled="!dirty"
+        :label="saveState.button.value.label"
+        :icon="saveState.button.value.icon"
+        :severity="saveState.button.value.severity"
+        :disabled="!dirty && saveState.state.value === 'idle'"
         :loading="m.inventory.isPending.value"
         @click="save"
       />

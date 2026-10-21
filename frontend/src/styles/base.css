@@ -22,6 +22,11 @@ a {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+/* Значки primeicons центрированы по высоте шрифта и выглядят выше строчных букв подписи кнопки — на 1px ниже. */
+.p-button .p-button-icon {
+  position: relative;
+  top: 1px;
+}
 
 /* Формы: подпись над полем, ошибка под полем, кнопки справа. */
 .form {

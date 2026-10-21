@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Шаблон письма (14 Экраны собственника, раздел 16, вкладка 4; 10 Уведомления, раздел 1): Тема*, Текст (TipTap),
 // «Вставить поле», «Предпросмотр», «Сбросить к стандартному», «Включён». Поля проверяются при сохранении.
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -18,6 +18,7 @@ import RichTextEditor from '@/components/RichTextEditor.vue'
 import { formatDateTime } from '@/utils/date'
 import { emailRecipientLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 
 const route = useRoute()
 const toast = useToast()
@@ -34,6 +35,7 @@ const loaded = ref<EmailTemplate | null>(null)
 const editorKey = ref(0)
 const errors = ref<Record<string, string>>({})
 const error = ref<string | null>(null)
+const saveState = useSaveState(() => [subject.value, body.value, enabled.value])
 
 function load(t: EmailTemplate) {
   loaded.value = t
@@ -77,15 +79,19 @@ function showError(err: unknown) {
 async function save() {
   errors.value = {}
   error.value = null
+  saveState.reset()
   if (!subject.value.trim()) {
     errors.value = { subject: 'Укажите тему письма' }
     return
   }
   try {
     load(await m.save.mutateAsync({ subject: subject.value.trim(), bodyHtml: body.value, enabled: enabled.value }))
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: 'Шаблон сохранён', life: 3000 })
   } catch (err) {
     showError(err)
+    saveState.failed()
   }
 }
 
@@ -141,9 +147,10 @@ async function preview() {
           @click="reset"
         />
         <Button
-          label="Сохранить"
-          icon="pi pi-check"
-          :disabled="!dirty"
+          :label="saveState.button.value.label"
+          :icon="saveState.button.value.icon"
+          :severity="saveState.button.value.severity"
+          :disabled="!dirty && saveState.state.value === 'idle'"
           :loading="m.save.isPending.value"
           @click="save"
         />

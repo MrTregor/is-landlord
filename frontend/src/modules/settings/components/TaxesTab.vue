@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Настройки → Налоги и фискализация (14 Экраны собственника, раздел 16.2).
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { toInput, useOrganizationSettings, useSaveOrganizationSettings } from '@/api/queries/settings'
 import type { components } from '@/api/schema'
 import { fiscalModeLabels, taxRegimeLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 
 type S = components['schemas']
 
@@ -20,6 +21,13 @@ const fiscalResidential = ref<S['FiscalMode']>('none')
 const fiscalNonResidential = ref<S['FiscalMode']>('cloud_kkt')
 const rateError = ref<string | null>(null)
 const serverError = ref<string | null>(null)
+const saveState = useSaveState(() => [
+  taxRegime.value,
+  taxRate.value,
+  vatPayer.value,
+  fiscalResidential.value,
+  fiscalNonResidential.value,
+])
 
 watch(
   () => settings.data.value,
@@ -51,6 +59,7 @@ async function submit() {
   if (!settings.data.value) return
   rateError.value = null
   serverError.value = null
+  saveState.reset()
   const rate = normalizeRate(taxRate.value)
   if (rate === null) {
     rateError.value = 'Ставка — число от 0 до 30, не более двух знаков после запятой'
@@ -65,9 +74,12 @@ async function submit() {
       defaultFiscalModeResidential: fiscalResidential.value,
       defaultFiscalModeNonResidential: fiscalNonResidential.value,
     })
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: 'Сохранено', life: 3000 })
   } catch (err) {
     serverError.value = parseProblem(err).message
+    saveState.failed()
   }
 }
 </script>
@@ -125,7 +137,13 @@ async function submit() {
     </div>
     <Message v-if="serverError" severity="error" :closable="false">{{ serverError }}</Message>
     <div class="actions">
-      <Button type="submit" label="Сохранить" icon="pi pi-check" :loading="save.isPending.value" />
+      <Button
+        type="submit"
+        :label="saveState.button.value.label"
+        :icon="saveState.button.value.icon"
+        :severity="saveState.button.value.severity"
+        :loading="save.isPending.value"
+      />
     </div>
   </form>
 </template>

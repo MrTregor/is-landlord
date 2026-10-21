@@ -2,7 +2,7 @@
 // Шаблон документа (14 Экраны собственника, раздел 16, вкладка 5; 09 Документы и шаблоны, разд. 2):
 // TipTap во всю ширину, «Вставить поле», «Предпросмотр PDF», «Сохранить» (новая версия), «Сбросить к стандартному»,
 // список версий справа; старая версия открывается только для чтения.
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -21,6 +21,7 @@ import { formatDateTime } from '@/utils/date'
 import { documentKindLabels } from '@/utils/labels'
 import { openBlobInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 
 const route = useRoute()
 const toast = useToast()
@@ -37,6 +38,7 @@ const loaded = ref('')
 const viewing = ref<TemplateVersion | null>(null)
 const error = ref<string | null>(null)
 const editorKey = ref(0)
+const saveState = useSaveState(() => [name.value, body.value])
 
 function load(v: TemplateVersion) {
   name.value = v.name
@@ -73,6 +75,7 @@ function insertField(editor: Editor, key: string | null) {
 
 async function save() {
   error.value = null
+  saveState.reset()
   if (!name.value.trim()) {
     error.value = 'Укажите название'
     return
@@ -80,9 +83,12 @@ async function save() {
   try {
     const d = await m.save.mutateAsync({ name: name.value.trim(), bodyHtml: body.value })
     load(d.active)
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: `Сохранена версия ${d.active.version}`, life: 3000 })
   } catch (err) {
     error.value = parseProblem(err).message
+    saveState.failed()
   }
 }
 
@@ -158,9 +164,10 @@ function backToCurrent() {
           @click="reset"
         />
         <Button
-          label="Сохранить"
-          icon="pi pi-check"
-          :disabled="!!viewing || !dirty"
+          :label="saveState.button.value.label"
+          :icon="saveState.button.value.icon"
+          :severity="saveState.button.value.severity"
+          :disabled="!!viewing || (!dirty && saveState.state.value === 'idle')"
           :loading="m.save.isPending.value"
           @click="save"
         />

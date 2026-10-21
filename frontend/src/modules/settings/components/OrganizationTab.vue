@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Настройки → Организация (14 Экраны собственника, раздел 16.1).
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useForm } from 'vee-validate'
 import { useToast } from 'primevue/usetoast'
 import { toInput, useOrganizationSettings, useSaveOrganizationSettings } from '@/api/queries/settings'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 import { toTypedSchema } from '@/utils/zodSchema'
 import { organizationSchema, type OrganizationForm } from '../schemas'
 
@@ -28,6 +29,7 @@ const {
 } = useForm({
   validationSchema: toTypedSchema(organizationSchema),
 })
+const saveState = useSaveState(() => values)
 
 const fields: { key: keyof OrganizationForm; label: string; required?: boolean; wide?: boolean; hint?: string }[] = [
   {
@@ -94,6 +96,7 @@ const orNull = (v: string) => (v.trim() === '' ? null : v.trim())
 const onSubmit = handleSubmit(async (v) => {
   if (!settings.data.value) return
   serverError.value = null
+  saveState.reset()
   try {
     await save.mutateAsync({
       ...toInput(settings.data.value),
@@ -105,11 +108,15 @@ const onSubmit = handleSubmit(async (v) => {
       bankAccount: orNull(v.bankAccount),
       bankCorrAccount: orNull(v.bankCorrAccount),
     })
+    // Форма заново заполняется ответом сервера (значения могут прийти нормализованными) — состояние ставится после.
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: 'Сохранено', life: 3000 })
   } catch (err) {
     const p = parseProblem(err)
     setErrors(p.fieldErrors)
     serverError.value = p.message
+    saveState.failed()
   }
 })
 </script>
@@ -136,10 +143,11 @@ const onSubmit = handleSubmit(async (v) => {
     <div class="actions">
       <Button
         type="submit"
-        label="Сохранить"
-        icon="pi pi-check"
+        :label="saveState.button.value.label"
+        :icon="saveState.button.value.icon"
+        :severity="saveState.button.value.severity"
         :loading="save.isPending.value"
-        :disabled="!meta.dirty"
+        :disabled="!meta.dirty && saveState.state.value === 'idle'"
       />
     </div>
   </form>

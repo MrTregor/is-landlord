@@ -2,10 +2,11 @@
 // Настройки → Уведомления и сроки (14 Экраны собственника, раздел 16, вкладка 3; FR-10.3): напоминание об оплате,
 // повтор письма о просрочке, дни уведомления об окончании договора, день напоминания о показаниях, автоматическое
 // принятие показаний, утренняя сводка, срок подготовки индексации.
-import { reactive, ref, watch } from 'vue'
+import { nextTick, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { toInput, useOrganizationSettings, useSaveOrganizationSettings } from '@/api/queries/settings'
 import { parseProblem } from '@/utils/problem'
+import { useSaveState } from '@/utils/saveState'
 import { parseNoticeDays } from '../notice'
 
 const settings = useOrganizationSettings()
@@ -21,6 +22,7 @@ const form = reactive({
   ownerDailyDigest: true,
   indexationDraftDaysBefore: 30,
 })
+const saveState = useSaveState(() => form)
 const errors = ref<Record<string, string>>({})
 const serverError = ref<string | null>(null)
 
@@ -45,6 +47,7 @@ async function submit() {
   if (!settings.data.value) return
   errors.value = {}
   serverError.value = null
+  saveState.reset()
   const days = parseNoticeDays(form.noticeDays)
   if (typeof days === 'string') {
     errors.value = { contractEndNoticeDays: days }
@@ -61,11 +64,14 @@ async function submit() {
       ownerDailyDigest: form.ownerDailyDigest,
       indexationDraftDaysBefore: form.indexationDraftDaysBefore,
     })
+    await nextTick()
+    saveState.saved()
     toast.add({ severity: 'success', summary: 'Сохранено', life: 3000 })
   } catch (err) {
     const p = parseProblem(err)
     errors.value = p.fieldErrors
     serverError.value = Object.keys(p.fieldErrors).length ? null : p.message
+    saveState.failed()
   }
 }
 </script>
@@ -126,7 +132,13 @@ async function submit() {
     </div>
     <Message v-if="serverError" severity="error" :closable="false">{{ serverError }}</Message>
     <div class="actions">
-      <Button type="submit" label="Сохранить" icon="pi pi-check" :loading="save.isPending.value" />
+      <Button
+        type="submit"
+        :label="saveState.button.value.label"
+        :icon="saveState.button.value.icon"
+        :severity="saveState.button.value.severity"
+        :loading="save.isPending.value"
+      />
     </div>
   </form>
 </template>
