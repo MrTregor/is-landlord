@@ -23,6 +23,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: { '/api': 'http://localhost:8080' },
+    // В WSL изменения файлов на диске Windows (/mnt/...) не приходят событиями — опрашивать файлы.
+    watch: process.env.WSL_DISTRO_NAME ? { usePolling: true, interval: 300 } : undefined,
   },
   test: {
     environment: 'jsdom',

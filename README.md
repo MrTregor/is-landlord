@@ -1,6 +1,6 @@
 # Наймодатель
 
-Информационная система управления арендой жилой недвижимости (ВКР). Спецификация — [`docs/spec/`](docs/spec/),
+Информационная система управления арендой недвижимости (ВКР). Спецификация — [`docs/spec/`](docs/spec/),
 принятые по ходу решения — [`docs/open-questions.md`](docs/open-questions.md).
 
 ## Состав репозитория
@@ -15,7 +15,8 @@
 | `docs/` | Руководства собственника и нанимателя, `deploy.md`, `database.md`, тест-кейсы и отчёт о тестировании |
 
 ## Быстрый старт (разработка)
-Нужны Go ≥ 1.26, Node.js ≥ 22, Docker Desktop (Compose v2), GNU make и POSIX-оболочка (на Windows — Git Bash).
+Нужны Go ≥ 1.26, Node.js 22.22.2+ или 24.15+ (`frontend/.nvmrc`; так требуют jsdom и eslint), Docker Desktop (Compose v2),
+GNU make и POSIX-оболочка (на Windows — Git Bash; в WSL — `sudo apt install make`, Go и Node — Linux-версии).
 
 ```bash
 cd frontend && npm ci && cd ..

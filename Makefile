@@ -1,5 +1,5 @@
 # Команды разработки «Наймодателя» (docs/spec/03 Архитектура и репозиторий.md, «Команды Makefile»).
-# Требуются: Go ≥ 1.26, Node.js ≥ 22, Docker с Compose v2, git, POSIX-оболочка (на Windows — Git Bash).
+# Требуются: Go ≥ 1.26, Node.js 22.22.2+ или 24.15+, Docker с Compose v2, git, POSIX-оболочка (на Windows — Git Bash).
 
 # Переменные окружения из .env загружает оболочка рецепта (LOADENV), а не make: так значения
 # с кириллицей и пробелами одинаково передаются процессам в Linux и Windows. .env создаётся из .env.example.
@@ -36,13 +36,17 @@ up: .env
 down:
 	$(COMPOSE) down
 
+# Дополнительные флаги air; deploy/run-wsl.sh включает опрос файлов (--build.poll true): из WSL изменения на диске
+# Windows (/mnt/...) не приходят событиями, без опроса server и worker не пересобираются.
+AIR_FLAGS ?=
+
 dev: up migrate
 	@echo "API: http://localhost:8080/api/v1 · интерфейс: http://localhost:5173 · почта: http://localhost:8025"
 	@$(LOADENV) trap 'kill 0' INT TERM; \
 	(cd backend && $(GOTOOL) air --tmp_dir tmp/server --build.cmd "$(GO) build -o tmp/server/server$(GOEXE) ./cmd/server" \
-		--build.entrypoint "tmp/server/server$(GOEXE)" --build.exclude_dir "tmp,testdata,tools" --log.main_only true) & \
+		--build.entrypoint "tmp/server/server$(GOEXE)" --build.exclude_dir "tmp,testdata,tools" --log.main_only true $(AIR_FLAGS)) & \
 	(cd backend && $(GOTOOL) air --tmp_dir tmp/worker --build.cmd "$(GO) build -o tmp/worker/worker$(GOEXE) ./cmd/worker" \
-		--build.entrypoint "tmp/worker/worker$(GOEXE)" --build.exclude_dir "tmp,testdata,tools" --log.main_only true) & \
+		--build.entrypoint "tmp/worker/worker$(GOEXE)" --build.exclude_dir "tmp,testdata,tools" --log.main_only true $(AIR_FLAGS)) & \
 	(cd frontend && npm run dev) & \
 	wait
 
