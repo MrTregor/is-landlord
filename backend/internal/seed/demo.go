@@ -225,7 +225,7 @@ func (w *world) organization() error {
 	for k, v := range map[string]any{
 		"fullName": "Индивидуальный предприниматель Гордейчик Александр Васильевич", "shortName": "ИП Гордейчик А.В.",
 		"inn": "507500363778", "ogrnip": "317502400029263", "address": "Московская область, г. Руза",
-		"phone": "+79160000000", "email": OwnerEmail, "bankName": "АО «Демо-Банк»", "bankBik": "044525999",
+		"phone": "+79161775782", "email": OwnerEmail, "bankName": "АО «Демо-Банк»", "bankBik": "044525999",
 		"bankAccount": "40802810900000012345", "bankCorrAccount": "30101810400000000999", "signatoryName": "А.В. Гордейчик",
 		"documentCity": "г. Руза", "taxRegime": "usn_income", "taxRatePct": "6",
 	} {
