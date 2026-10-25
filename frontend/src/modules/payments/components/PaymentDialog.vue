@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Диалог «Зарегистрировать платёж» (14 Экраны собственника, раздел 6.2): договор, назначение, сумма, дата поступления,
 // способ, выбор начислений, комментарий; под формой — предпросмотр распределения (окончательно считает сервер).
-import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useCharges } from '@/api/queries/charges'
@@ -13,6 +12,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import { formatDate } from '@/utils/date'
 import { manualPaymentMethodLabels, options, paymentPurposeFormLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 import { previewAllocation } from '../allocation'
 
 const props = defineProps<{ contractId?: string; purpose?: 'charges' | 'deposit' }>()
@@ -43,7 +43,6 @@ const amountError = ref<string | null>(null)
 const submitted = ref(false)
 const serverErrors = ref<Record<string, string>>({})
 const serverError = ref<string | null>(null)
-const today = () => dayjs().format('YYYY-MM-DD')
 
 watch(visible, (v) => {
   if (!v) return
@@ -51,7 +50,7 @@ watch(visible, (v) => {
     contractId: props.contractId ?? null,
     purpose: props.purpose ?? 'charges',
     amountKop: null,
-    receivedOn: today(),
+    receivedOn: todayIso(),
     method: 'bank_transfer',
     chargeIds: [],
     comment: '',
@@ -97,7 +96,7 @@ const errors = computed(() => {
   if (amountError.value) e.amountKop = amountError.value
   else if (!form.amountKop || form.amountKop <= 0) e.amountKop = 'Сумма должна быть больше нуля'
   if (!form.receivedOn) e.receivedOn = 'Укажите дату поступления'
-  else if (form.receivedOn > today()) e.receivedOn = 'Дата поступления не может быть позже сегодняшней'
+  else if (form.receivedOn > todayIso()) e.receivedOn = 'Дата поступления не может быть позже сегодняшней'
   return { ...e, ...serverErrors.value }
 })
 const err = (f: string) => (submitted.value || serverErrors.value[f] ? errors.value[f] : undefined)
@@ -176,12 +175,7 @@ async function save() {
         </div>
         <div class="field">
           <label for="pd-date">Дата поступления *</label>
-          <DateInput
-            v-model="form.receivedOn"
-            input-id="pd-date"
-            :max-date="new Date()"
-            :invalid="!!err('receivedOn')"
-          />
+          <DateInput v-model="form.receivedOn" input-id="pd-date" :max-date="today()" :invalid="!!err('receivedOn')" />
           <small v-if="err('receivedOn')" class="error">{{ err('receivedOn') }}</small>
         </div>
       </div>

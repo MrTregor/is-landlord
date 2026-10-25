@@ -27,6 +27,15 @@ a {
   position: relative;
   top: 1px;
 }
+/* Календарь при сдвинутой дате системы (DateInput): подсветка «сегодня» — у дня по дате системы, не компьютера. */
+.date-input--shifted .p-datepicker-today > .p-datepicker-day:not(.p-datepicker-day-selected) {
+  background: transparent;
+  color: inherit;
+}
+.date-input--shifted .p-datepicker-day:has(> .date-input__today):not(.p-datepicker-day-selected) {
+  background: var(--p-datepicker-today-background);
+  color: var(--p-datepicker-today-color);
+}
 
 /* Формы: подпись над полем, ошибка под полем, кнопки справа. */
 .form {

@@ -5,9 +5,10 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import { useProperties, useTariffMutations, useTariffs, type Tariff } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
-import { formatDate, toIsoDate } from '@/utils/date'
+import { formatDate } from '@/utils/date'
 import { meterTypeLabels, options } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 const tariffs = useTariffs()
 const m = useTariffMutations()
@@ -37,7 +38,7 @@ const form = reactive({
   meterType: 'cold_water' as Tariff['meterType'],
   propertyId: null as string | null,
   price: '',
-  effectiveFrom: toIsoDate(new Date()) as string | null,
+  effectiveFrom: todayIso() as string | null,
   note: '',
 })
 const errors = ref<Record<string, string>>({})
@@ -48,7 +49,7 @@ function open() {
     meterType: 'cold_water',
     propertyId: null,
     price: '',
-    effectiveFrom: toIsoDate(new Date()),
+    effectiveFrom: todayIso(),
     note: '',
   })
   errors.value = {}

@@ -3,7 +3,6 @@
 // Переплата: «Оставить авансом», «Вернуть» (сумма, дата, способ), «Перенести в залог» (сумма); недоплата:
 // «Принять к сведению» (комментарий); неопознанный: «Привязать к договору» (подсказки — договоры, где наниматель
 // похож на плательщика), «Возвращён плательщику», «Не относится к аренде».
-import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useContracts } from '@/api/queries/contracts'
@@ -15,6 +14,7 @@ import { discrepancyKindLabels, options, refundMethodLabels } from '@/utils/labe
 import { formatKop } from '@/utils/money'
 import { formatDate } from '@/utils/date'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 import { groupContracts } from '../suggest'
 
 type Action = 'keep_advance' | 'refund' | 'move_to_deposit' | 'acknowledge' | 'link' | 'returned_to_payer' | 'ignore'
@@ -23,7 +23,6 @@ const props = defineProps<{ discrepancy: Discrepancy }>()
 const visible = defineModel<boolean>('visible', { required: true })
 const toast = useToast()
 const m = useDiscrepancyMutations()
-const today = () => dayjs().format('YYYY-MM-DD')
 
 const overActions: { value: Action; label: string }[] = [
   { value: 'keep_advance', label: 'Оставить авансом' },
@@ -73,7 +72,7 @@ watch(
       ] as Action,
       contractId: null,
       amountKop: props.discrepancy.amountKop,
-      refundedOn: today(),
+      refundedOn: todayIso(),
       method: 'bank_transfer',
       note: '',
     })
@@ -95,7 +94,7 @@ const errors = computed(() => {
   }
   if (form.action === 'refund') {
     if (!form.refundedOn) e.refundedOn = 'Укажите дату возврата'
-    else if (form.refundedOn > today()) e.refundedOn = 'Дата не может быть позже сегодняшней'
+    else if (form.refundedOn > todayIso()) e.refundedOn = 'Дата не может быть позже сегодняшней'
   }
   if (form.action === 'acknowledge' && !form.note.trim()) e.note = 'Укажите комментарий'
   if (form.action === 'link' && !form.contractId) e.contractId = 'Выберите договор'
@@ -227,12 +226,7 @@ async function save() {
         </div>
         <div v-if="form.action === 'refund'" class="field">
           <label for="rd-date">Дата возврата *</label>
-          <DateInput
-            v-model="form.refundedOn"
-            input-id="rd-date"
-            :max-date="new Date()"
-            :invalid="!!err('refundedOn')"
-          />
+          <DateInput v-model="form.refundedOn" input-id="rd-date" :max-date="today()" :invalid="!!err('refundedOn')" />
           <small v-if="err('refundedOn')" class="error">{{ err('refundedOn') }}</small>
         </div>
       </div>

@@ -6,9 +6,9 @@ import { useToast } from 'primevue/usetoast'
 import type { ContractDetail } from '@/api/queries/contracts'
 import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import DateInput from '@/components/DateInput.vue'
-import { toIsoDate } from '@/utils/date'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 const props = defineProps<{ contract: ContractDetail }>()
 const visible = defineModel<boolean>('visible', { required: true })
@@ -16,7 +16,7 @@ const toast = useToast()
 const m = useDocumentMutations()
 
 function defaults() {
-  const today = toIsoDate(new Date())
+  const today = todayIso()
   const yearStart = `${today.slice(0, 4)}-01-01`
   const from = props.contract.startDate > yearStart ? props.contract.startDate : yearStart
   const to = props.contract.actualEndDate < today ? props.contract.actualEndDate : today

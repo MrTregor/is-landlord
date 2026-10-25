@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Рабочее место собственника (13 Фронтенд, раздел 5): меню 240 px (свёртывается до 64 px),
 // верхняя панель 56 px — хлебные крошки, поиск, меню пользователя; ниже 1024 px меню — выдвижная панель.
-import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { api, unwrap } from '@/api/client'
@@ -10,6 +10,7 @@ import { useDashboard } from '@/api/queries/dashboard'
 import { APP_NAME } from '@/app/constants'
 import { useSessionStore } from '@/app/session'
 import { formatDate } from '@/utils/date'
+import { setSystemToday } from '@/utils/today'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { ownerMenu } from './ownerMenu'
 
@@ -63,6 +64,14 @@ const devClock = useQuery({
   enabled: isDemo,
   retry: false,
 })
+// «Сегодня» календарей и значений по умолчанию — дата системы. Страница показывается, когда она известна:
+// иначе формы, открытые сразу после загрузки, взяли бы дату компьютера.
+watch(
+  () => (isDemo.value ? (devClock.data.value?.today ?? null) : null),
+  (t) => setSystemToday(t),
+  { immediate: true },
+)
+const clockReady = computed(() => !appInfo.isPending.value && (!isDemo.value || !devClock.isPending.value))
 
 // Поиск по договорам, нанимателям и объектам (по 5 результатов).
 interface SearchHit {
@@ -214,7 +223,7 @@ async function logout() {
         <ChangePasswordDialog v-model:visible="passwordDialog" />
       </header>
       <main class="owner__content">
-        <slot />
+        <slot v-if="clockReady" />
       </main>
     </div>
   </div>

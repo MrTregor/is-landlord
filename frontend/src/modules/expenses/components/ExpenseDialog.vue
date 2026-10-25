@@ -13,6 +13,7 @@ import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import { expenseCategoryLabels, options } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 type S = components['schemas']
 const props = defineProps<{
@@ -24,7 +25,6 @@ const props = defineProps<{
 const visible = defineModel<boolean>('visible', { required: true })
 const toast = useToast()
 const m = useExpenseMutations()
-const today = () => dayjs().format('YYYY-MM-DD')
 const editing = computed(() => !!props.expense)
 
 const form = reactive({
@@ -59,8 +59,8 @@ watch(
       propertyId: e?.property.id ?? props.propertyId ?? null,
       category: e?.category ?? 'repair',
       amountKop: e?.amountKop ?? null,
-      paidOn: e?.paidOn ?? today(),
-      periodMonth: e?.periodMonth ?? dayjs().startOf('month').format('YYYY-MM-DD'),
+      paidOn: e?.paidOn ?? todayIso(),
+      periodMonth: e?.periodMonth ?? dayjs(todayIso()).startOf('month').format('YYYY-MM-DD'),
       description: e?.description ?? '',
       counterparty: e?.counterparty ?? '',
       fileId: e?.file?.id ?? null,
@@ -68,7 +68,7 @@ watch(
       maintenanceRequestId: e?.maintenanceRequest?.id ?? props.requestId ?? null,
       recovery: e?.recovery ?? (props.tenantFault ? 'deposit' : 'none'),
       contractId: null,
-      chargeDueDate: dayjs().add(10, 'day').format('YYYY-MM-DD'),
+      chargeDueDate: dayjs(todayIso()).add(10, 'day').format('YYYY-MM-DD'),
     })
     monthTouched.value = !!e
     amountError.value = null

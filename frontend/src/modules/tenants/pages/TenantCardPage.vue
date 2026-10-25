@@ -13,7 +13,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PdnField from '@/components/PdnField.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { formatDate, formatDateTime, toIsoDate } from '@/utils/date'
+import { formatDate, formatDateTime } from '@/utils/date'
 import {
   consentMethodLabels,
   contractStatusLabels,
@@ -25,6 +25,7 @@ import {
 import { formatPhone } from '@/utils/phone'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 type Consent = components['schemas']['PdnConsentDTO']
 type ContractItem = components['schemas']['TenantContractItem']
@@ -112,7 +113,7 @@ async function consentPdf() {
 
 // «Отметить получение» подписанного согласия.
 const consentDialog = ref(false)
-const consentForm = reactive({ givenOn: toIsoDate(new Date()) as string | null, file: null as File | null })
+const consentForm = reactive({ givenOn: todayIso() as string | null, file: null as File | null })
 const consentError = ref<string | null>(null)
 async function saveConsent() {
   consentError.value = null
@@ -132,10 +133,10 @@ async function saveConsent() {
 
 // «Отозвать» согласие.
 const revokeDialog = ref(false)
-const revokeForm = reactive({ consentId: '', revokedOn: toIsoDate(new Date()) as string | null, note: '' })
+const revokeForm = reactive({ consentId: '', revokedOn: todayIso() as string | null, note: '' })
 const revokeError = ref<string | null>(null)
 function openRevoke(c: Consent) {
-  Object.assign(revokeForm, { consentId: c.id, revokedOn: toIsoDate(new Date()), note: '' })
+  Object.assign(revokeForm, { consentId: c.id, revokedOn: todayIso(), note: '' })
   revokeError.value = null
   revokeDialog.value = true
 }
@@ -343,7 +344,7 @@ const canInvite = computed(() => !!t.value && !t.value.user && !!t.value.email &
               :disabled="!!t.anonymizedAt"
               @click="
                 () => {
-                  consentForm.givenOn = toIsoDate(new Date())
+                  consentForm.givenOn = todayIso()
                   consentForm.file = null
                   consentError = null
                   consentDialog = true
@@ -394,7 +395,7 @@ const canInvite = computed(() => !!t.value && !t.value.user && !!t.value.email &
         <form class="form" novalidate @submit.prevent="saveConsent">
           <div class="field">
             <label for="c-date">Дата согласия *</label>
-            <DateInput v-model="consentForm.givenOn" input-id="c-date" :max-date="new Date()" />
+            <DateInput v-model="consentForm.givenOn" input-id="c-date" :max-date="today()" />
           </div>
           <div class="field">
             <label for="c-file">Скан подписанного бланка</label>
@@ -423,7 +424,7 @@ const canInvite = computed(() => !!t.value && !t.value.user && !!t.value.email &
         <form class="form" novalidate @submit.prevent="saveRevoke">
           <div class="field">
             <label for="r-date">Дата отзыва *</label>
-            <DateInput v-model="revokeForm.revokedOn" input-id="r-date" :max-date="new Date()" />
+            <DateInput v-model="revokeForm.revokedOn" input-id="r-date" :max-date="today()" />
           </div>
           <div class="field">
             <label for="r-note">Примечание</label>

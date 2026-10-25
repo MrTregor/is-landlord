@@ -16,6 +16,7 @@ import { formatDate, fromIsoDate } from '@/utils/date'
 import { options, propertyStatusLabels, utilitiesModeLabels } from '@/utils/labels'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { today } from '@/utils/today'
 import TenantFormPage from '@/modules/tenants/pages/TenantFormPage.vue'
 import ActivateDialog from '../components/ActivateDialog.vue'
 import {
@@ -567,7 +568,7 @@ const steps = [
                 </div>
                 <div class="field">
                   <label :for="`w-occ-b-${i}`">Дата рождения</label>
-                  <DateInput v-model="o.birthDate" :input-id="`w-occ-b-${i}`" :max-date="new Date()" />
+                  <DateInput v-model="o.birthDate" :input-id="`w-occ-b-${i}`" :max-date="today()" />
                 </div>
                 <div class="field">
                   <label :for="`w-occ-r-${i}`">Кем приходится</label>

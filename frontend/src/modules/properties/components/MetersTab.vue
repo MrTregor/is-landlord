@@ -5,9 +5,10 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import { fetchMeters, usePropertyMutations, usePropertySub, type Meter } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
-import { formatDate, toIsoDate } from '@/utils/date'
+import { formatDate } from '@/utils/date'
 import { meterTypeLabels, options } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 const props = defineProps<{ propertyId: string; archived: boolean }>()
 const meters = usePropertySub(() => props.propertyId, 'meters', fetchMeters)
@@ -24,7 +25,7 @@ const form = reactive({
   type: 'cold_water' as Meter['type'],
   serialNumber: '',
   initialValue: '',
-  initialDate: toIsoDate(new Date()) as string | null,
+  initialDate: todayIso() as string | null,
   verificationDue: null as string | null,
   note: '',
 })
@@ -37,7 +38,7 @@ function open(meter: Meter | null) {
     type: meter?.type ?? 'cold_water',
     serialNumber: meter?.serialNumber ?? '',
     initialValue: meter ? reading(meter.initialValue) : '',
-    initialDate: meter?.initialDate ?? toIsoDate(new Date()),
+    initialDate: meter?.initialDate ?? todayIso(),
     verificationDue: meter?.verificationDue ?? null,
     note: meter?.note ?? '',
   })

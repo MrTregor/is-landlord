@@ -9,7 +9,7 @@ import type { components } from '@/api/schema'
 import DateInput from '@/components/DateInput.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { formatDate, formatDateTime, formatMonth, toIsoDate } from '@/utils/date'
+import { formatDate, formatDateTime, formatMonth } from '@/utils/date'
 import {
   meterTypeLabels,
   options,
@@ -20,6 +20,7 @@ import {
 import { useListQuery } from '@/utils/listQuery'
 import { formatKop } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 type Decision = components['schemas']['MeterReadingDecision']
 const toast = useToast()
@@ -129,8 +130,8 @@ function openCreate() {
   Object.assign(form, {
     propertyId: str('propertyId') ?? null,
     meterId: null,
-    month: dayjs().startOf('month').toDate(),
-    readingDate: toIsoDate(new Date()),
+    month: dayjs(todayIso()).startOf('month').toDate(),
+    readingDate: todayIso(),
     value: '',
   })
   submitted.value = false
@@ -396,7 +397,7 @@ const periodDate = computed(() => (str('periodMonth') ? dayjs(str('periodMonth')
             <DateInput
               v-model="form.readingDate"
               input-id="rd-date"
-              :max-date="new Date()"
+              :max-date="today()"
               :invalid="!!err('readingDate')"
             />
             <small v-if="err('readingDate')" class="error">{{ err('readingDate') }}</small>

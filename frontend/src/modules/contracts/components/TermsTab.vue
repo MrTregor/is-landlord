@@ -9,6 +9,7 @@ import { formatDate } from '@/utils/date'
 import { utilitiesModeLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
 import { useSaveState } from '@/utils/saveState'
+import { today } from '@/utils/today'
 import { conditionsSchema, fieldErrors, pctToApi, pctToText, type OccupantRow } from '../schemas'
 
 const props = defineProps<{ contract: ContractDetail }>()
@@ -233,7 +234,7 @@ const pctText = (v: string | null) => pctToText(v)
           <div class="form">
             <div class="field">
               <label for="r-date">Дата регистрации</label>
-              <DateInput v-model="reg.doneOn" input-id="r-date" :max-date="new Date()" />
+              <DateInput v-model="reg.doneOn" input-id="r-date" :max-date="today()" />
             </div>
             <div class="field">
               <label for="r-number">Номер регистрации</label>
@@ -310,7 +311,7 @@ const pctText = (v: string | null) => pctToText(v)
           </div>
           <div class="field">
             <label :for="`o-birth-${i}`">Дата рождения</label>
-            <DateInput v-model="o.birthDate" :input-id="`o-birth-${i}`" :max-date="new Date()" />
+            <DateInput v-model="o.birthDate" :input-id="`o-birth-${i}`" :max-date="today()" />
           </div>
           <div class="field">
             <label :for="`o-rel-${i}`">Кем приходится</label>

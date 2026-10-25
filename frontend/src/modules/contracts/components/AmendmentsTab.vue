@@ -20,6 +20,7 @@ import { amendmentKindLabels, amendmentStatusLabels, amendmentStatusSeverity, op
 import { formatKop } from '@/utils/money'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 type Kind = components['schemas']['AmendmentKind']
 const props = defineProps<{ contract: ContractDetail; createSignal: number }>()
@@ -73,7 +74,7 @@ const byMonth = computed(() => ['indexation', 'rent_change', 'terms_change'].inc
 
 function open(a: Amendment | null) {
   editing.value = a
-  const nextMonth = dayjs().add(1, 'month').startOf('month')
+  const nextMonth = dayjs(todayIso()).add(1, 'month').startOf('month')
   Object.assign(form, {
     kind: a?.kind ?? 'rent_change',
     month: a ? dayjs(a.effectiveFrom).toDate() : nextMonth.toDate(),
@@ -144,7 +145,7 @@ const signedOn = ref<string | null>(null)
 const signError = ref<string | null>(null)
 function openSign(a: Amendment) {
   signTarget.value = a
-  signedOn.value = toIsoDate(new Date())
+  signedOn.value = todayIso()
   signError.value = null
   signDialog.value = true
 }
@@ -339,7 +340,7 @@ const monthLabel = computed(() => (form.month ? formatMonth(toIsoDate(form.month
       <form class="form" novalidate @submit.prevent="sign">
         <div class="field">
           <label for="am-signed">Дата подписания *</label>
-          <DateInput v-model="signedOn" input-id="am-signed" :max-date="new Date()" />
+          <DateInput v-model="signedOn" input-id="am-signed" :max-date="today()" />
         </div>
         <p class="hint">Изменения применяются к договору сразу; нанимателю уйдёт письмо, если меняется плата.</p>
         <Message v-if="signError" severity="error" :closable="false">{{ signError }}</Message>

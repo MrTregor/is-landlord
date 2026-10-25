@@ -10,10 +10,10 @@ import { useOrganizationSettings } from '@/api/queries/settings'
 import { useTenant } from '@/api/queries/tenants'
 import DateInput from '@/components/DateInput.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { toIsoDate } from '@/utils/date'
 import { docTypeLabels, options } from '@/utils/labels'
 import { normalizePhone } from '@/utils/phone'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 import { emptyTenantForm, tenantSchema, type TenantForm } from '../schemas'
 
 // embedded — форма в диалоге «Новый наниматель» мастера договора: без заголовка, после сохранения — событие saved.
@@ -77,7 +77,7 @@ const err = (k: string) =>
 const touch = (k: string) => touched.add(k)
 
 // Отдельное согласие на ПДн (только создание физлица, необязательно).
-const consent = reactive({ given: false, givenOn: toIsoDate(new Date()) as string | null, file: null as File | null })
+const consent = reactive({ given: false, givenOn: todayIso() as string | null, file: null as File | null })
 
 const orNull = (v: string) => (v.trim() === '' ? null : v.trim())
 
@@ -200,12 +200,7 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
           </div>
           <div class="field">
             <label for="t-birth">Дата рождения</label>
-            <DateInput
-              v-model="form.birthDate"
-              input-id="t-birth"
-              :max-date="new Date()"
-              :invalid="!!err('birthDate')"
-            />
+            <DateInput v-model="form.birthDate" input-id="t-birth" :max-date="today()" :invalid="!!err('birthDate')" />
             <small v-if="err('birthDate')" class="error">{{ err('birthDate') }}</small>
           </div>
         </div>
@@ -248,7 +243,7 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
             </div>
             <div class="field">
               <label for="t-issuedon">Дата выдачи</label>
-              <DateInput v-model="form.docIssuedOn" input-id="t-issuedon" :max-date="new Date()" />
+              <DateInput v-model="form.docIssuedOn" input-id="t-issuedon" :max-date="today()" />
             </div>
             <div class="field">
               <label for="t-division">Код подразделения</label>
@@ -435,7 +430,7 @@ const hasSavedDoc = computed(() => isEdit.value && !!existing.data.value?.hasDoc
             <DateInput
               v-model="consent.givenOn"
               input-id="t-consent-date"
-              :max-date="new Date()"
+              :max-date="today()"
               :invalid="!!err('consent')"
             />
             <small v-if="err('consent')" class="error">{{ err('consent') }}</small>

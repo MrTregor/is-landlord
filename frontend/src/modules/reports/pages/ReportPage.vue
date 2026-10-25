@@ -14,6 +14,7 @@ import { formatDate, formatMonth } from '@/utils/date'
 import { contractStatusLabels, incomeKindLabels, propertyStatusLabels } from '@/utils/labels'
 import { formatPct } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 import PeriodPicker from '../components/PeriodPicker.vue'
 import { presetPeriod, type Period } from '../period'
 import { reports, type ReportName } from '../reports'
@@ -21,13 +22,13 @@ import { reports, type ReportName } from '../reports'
 const route = useRoute()
 const name = computed(() => route.params.name as ReportName)
 const meta = computed(() => reports.find((r) => r.name === name.value))
-const today = dayjs().format('YYYY-MM-DD')
+const today = todayIso()
 
 // Параметры формы и «построенные» параметры (запрос — только по кнопке «Построить»).
 const period = ref<Period>(presetPeriod('month', today))
 const propertyId = ref<string | null>(null)
 const asOf = ref<string | null>(today)
-const year = ref<number>(dayjs().year())
+const year = ref<number>(dayjs(todayIso()).year())
 const built = ref<Record<string, string | number> | null>(null)
 watch(name, () => {
   built.value = null
@@ -74,7 +75,7 @@ const properties = useProperties(() => ({ pageSize: 100 }))
 const propertyOptions = computed(() =>
   (properties.data.value?.items ?? []).map((x) => ({ value: x.id, label: x.code })),
 )
-const years = computed(() => Array.from({ length: 6 }, (_, i) => dayjs().year() - i))
+const years = computed(() => Array.from({ length: 6 }, (_, i) => dayjs(todayIso()).year() - i))
 const taxTab = ref('summary')
 </script>
 

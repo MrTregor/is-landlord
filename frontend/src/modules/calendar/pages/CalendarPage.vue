@@ -24,6 +24,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { formatDate } from '@/utils/date'
 import { calendarKindLabels, manualEventKindLabels, options } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 type Kind = components['schemas']['CalendarEventKind']
 type ManualKind = components['schemas']['ManualCalendarEventKind']
@@ -79,6 +80,8 @@ const options_ = computed(() => ({
   initialView: 'dayGridMonth',
   locale: ruLocale,
   firstDay: 1,
+  // «Сегодня» (открываемый месяц, кнопка «Сегодня», подсветка дня) — дата системы, время суток — компьютера.
+  now: () => `${todayIso()}T${dayjs().format('HH:mm:ss')}`,
   timedText: 'По времени',
   height: 'auto',
   headerToolbar: { start: 'today prev,next', center: 'title', end: 'dayGridMonth,timeGridWeek,listWeek' },
@@ -250,7 +253,7 @@ const kindOptions = options(calendarKindLabels)
   <div>
     <PageHeader title="Календарь">
       <template #actions>
-        <Button label="Новое событие" icon="pi pi-plus" @click="openNew(dayjs().format('YYYY-MM-DD'))" />
+        <Button label="Новое событие" icon="pi pi-plus" @click="openNew(todayIso())" />
       </template>
     </PageHeader>
 

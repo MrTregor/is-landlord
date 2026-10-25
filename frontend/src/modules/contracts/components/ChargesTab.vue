@@ -7,6 +7,7 @@ import { useChargeMutations, type ChargesQuery } from '@/api/queries/charges'
 import type { ContractDetail } from '@/api/queries/contracts'
 import { formatKop } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 import ChargeDrawer from '@/modules/charges/components/ChargeDrawer.vue'
 import ChargesTable from '@/modules/charges/components/ChargesTable.vue'
 import ManualChargeDialog from '@/modules/charges/components/ManualChargeDialog.vue'
@@ -29,7 +30,7 @@ const live = computed(() => props.contract.status !== 'draft')
 
 // «Начисление ЖКУ за месяц» (режим «По счётчикам»).
 const utilDialog = ref(false)
-const month = ref<Date | null>(dayjs().subtract(1, 'month').startOf('month').toDate())
+const month = ref<Date | null>(dayjs(todayIso()).subtract(1, 'month').startOf('month').toDate())
 const utilError = ref<string | null>(null)
 async function createUtilities() {
   utilError.value = null

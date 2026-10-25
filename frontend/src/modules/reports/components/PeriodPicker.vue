@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // Выбор периода отчёта: диапазон дат и быстрые кнопки (14 Экраны собственника, раздел 12).
-import dayjs from 'dayjs'
 import DateInput from '@/components/DateInput.vue'
 import { presetPeriod, presets, type Period } from '../period'
+import { todayIso } from '@/utils/today'
 
 const model = defineModel<Period>({ required: true })
-const today = () => dayjs().format('YYYY-MM-DD')
 </script>
 
 <template>
@@ -36,7 +35,7 @@ const today = () => dayjs().format('YYYY-MM-DD')
         :label="p.label"
         size="small"
         text
-        @click="model = presetPeriod(p.key, today())"
+        @click="model = presetPeriod(p.key, todayIso())"
       />
     </div>
   </div>

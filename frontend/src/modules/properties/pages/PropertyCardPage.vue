@@ -8,9 +8,10 @@ import { useProperty, usePropertyMutations } from '@/api/queries/properties'
 import DateInput from '@/components/DateInput.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { formatDate, toIsoDate } from '@/utils/date'
+import { formatDate } from '@/utils/date'
 import { propertyKindLabels, propertyStatusLabels, propertyStatusSeverity } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 import ChargesTab from '../components/ChargesTab.vue'
 import ExpensesTab from '../components/ExpensesTab.vue'
 import ProfitabilityTab from '../components/ProfitabilityTab.vue'
@@ -76,7 +77,7 @@ function toggleArchive() {
 const statusDialog = ref(false)
 const statusForm = reactive({
   status: 'free' as 'free' | 'reserved' | 'repair',
-  since: toIsoDate(new Date()) as string | null,
+  since: todayIso() as string | null,
   reason: '',
 })
 const statusError = ref<string | null>(null)
@@ -87,7 +88,7 @@ const manualStatuses = [
 ]
 function openStatus() {
   statusForm.status = p.value?.status === 'free' ? 'repair' : 'free'
-  statusForm.since = toIsoDate(new Date())
+  statusForm.since = todayIso()
   statusForm.reason = ''
   statusError.value = null
   statusDialog.value = true
@@ -198,7 +199,7 @@ async function saveStatus() {
           </div>
           <div class="field">
             <label for="st-since">С даты *</label>
-            <DateInput v-model="statusForm.since" input-id="st-since" :max-date="new Date()" />
+            <DateInput v-model="statusForm.since" input-id="st-since" :max-date="today()" />
           </div>
           <div class="field">
             <label for="st-reason">Причина</label>

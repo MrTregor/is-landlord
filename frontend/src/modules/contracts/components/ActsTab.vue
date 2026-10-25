@@ -5,10 +5,11 @@ import { useToast } from 'primevue/usetoast'
 import { fetchActs, useContractMutations, useContractSub, type Act, type ContractDetail } from '@/api/queries/contracts'
 import { documentPdfUrl, useDocumentMutations } from '@/api/queries/documents'
 import DateInput from '@/components/DateInput.vue'
-import { formatDate, toIsoDate } from '@/utils/date'
+import { formatDate } from '@/utils/date'
 import { actKindLabels, meterTypeLabels } from '@/utils/labels'
 import { openInNewTab } from '@/utils/pdf'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 const props = defineProps<{ contract: ContractDetail; returnSignal: number }>()
 const toast = useToast()
@@ -161,7 +162,7 @@ const signedOn = ref<string | null>(null)
 const signError = ref<string | null>(null)
 function openSign(a: Act) {
   signAct.value = a
-  signedOn.value = toIsoDate(new Date())
+  signedOn.value = todayIso()
   signError.value = null
   signDialog.value = true
 }
@@ -331,7 +332,7 @@ const filled = (a: Act) => a.readings.filter((r) => r.value != null).length
       <form class="form" novalidate @submit.prevent="sign">
         <div class="field">
           <label for="act-signed">Дата подписания *</label>
-          <DateInput v-model="signedOn" input-id="act-signed" :max-date="new Date()" />
+          <DateInput v-model="signedOn" input-id="act-signed" :max-date="today()" />
         </div>
         <p class="hint">После подписания акт не редактируется, показания счётчиков принимаются.</p>
         <Message v-if="signError" severity="error" :closable="false">{{ signError }}</Message>

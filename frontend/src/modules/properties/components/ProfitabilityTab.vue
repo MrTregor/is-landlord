@@ -10,9 +10,10 @@ import { presetPeriod } from '@/modules/reports/period'
 import { formatMonth } from '@/utils/date'
 import { formatPct } from '@/utils/money'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 
 const props = defineProps<{ propertyId: string }>()
-const period = ref(presetPeriod('year', dayjs().format('YYYY-MM-DD')))
+const period = ref(presetPeriod('year', dayjs(todayIso()).format('YYYY-MM-DD')))
 const prof = useProfitability(() => props.propertyId, period)
 </script>
 

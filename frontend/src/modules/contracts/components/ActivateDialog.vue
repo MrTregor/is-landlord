@@ -6,8 +6,8 @@ import { api, unwrap } from '@/api/client'
 import { useContractMutations, type ContractDetail } from '@/api/queries/contracts'
 import { useTenant } from '@/api/queries/tenants'
 import DateInput from '@/components/DateInput.vue'
-import { toIsoDate } from '@/utils/date'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 const props = defineProps<{ contract: ContractDetail }>()
 const visible = defineModel<boolean>('visible', { required: true })
@@ -16,14 +16,14 @@ const toast = useToast()
 const m = useContractMutations(() => props.contract.id)
 const tenant = useTenant(() => props.contract.tenant.id)
 
-const concludedOn = ref<string | null>(toIsoDate(new Date()))
+const concludedOn = ref<string | null>(todayIso())
 const invite = ref(true)
 const error = ref<string | null>(null)
 const canInvite = computed(() => !!props.contract.tenant.email && tenant.data.value && !tenant.data.value.user)
 
 watch(visible, (v) => {
   if (v) {
-    concludedOn.value = toIsoDate(new Date())
+    concludedOn.value = todayIso()
     invite.value = true
     error.value = null
   }
@@ -73,7 +73,7 @@ async function submit() {
       </template>
       <div class="field">
         <label for="a-concluded">Дата подписания *</label>
-        <DateInput v-model="concludedOn" input-id="a-concluded" :max-date="new Date()" />
+        <DateInput v-model="concludedOn" input-id="a-concluded" :max-date="today()" />
       </div>
       <div v-if="canInvite" class="field field--check">
         <Checkbox v-model="invite" input-id="a-invite" binary />

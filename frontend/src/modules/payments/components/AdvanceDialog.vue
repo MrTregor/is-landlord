@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Аванс платежа (05 разд. 10.6, 14 разд. 6.3): «Вернуть» (сумма, дата, способ, причина) или «Перенести в залог»
 // (сумма, дата). Сумма — не больше аванса.
-import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { usePaymentMutations } from '@/api/queries/payments'
@@ -10,12 +9,12 @@ import MoneyInput from '@/components/MoneyInput.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import { options, refundMethodLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 
 const props = defineProps<{ paymentId: string; advanceKop: number; mode: 'refund' | 'deposit' }>()
 const visible = defineModel<boolean>('visible', { required: true })
 const toast = useToast()
 const m = usePaymentMutations()
-const today = () => dayjs().format('YYYY-MM-DD')
 
 const form = reactive({
   amountKop: null as number | null,
@@ -29,7 +28,7 @@ const serverErrors = ref<Record<string, string>>({})
 const serverError = ref<string | null>(null)
 watch(visible, (v) => {
   if (!v) return
-  Object.assign(form, { amountKop: props.advanceKop, date: today(), method: 'bank_transfer', reason: '' })
+  Object.assign(form, { amountKop: props.advanceKop, date: todayIso(), method: 'bank_transfer', reason: '' })
   amountError.value = null
   submitted.value = false
   serverErrors.value = {}
@@ -43,7 +42,7 @@ const errors = computed(() => {
   else if (!form.amountKop || form.amountKop <= 0) e.amountKop = 'Сумма должна быть больше нуля'
   else if (form.amountKop > props.advanceKop) e.amountKop = 'Сумма больше аванса по платежу'
   if (!form.date) e.date = 'Укажите дату'
-  else if (form.date > today()) e.date = 'Дата не может быть позже сегодняшней'
+  else if (form.date > todayIso()) e.date = 'Дата не может быть позже сегодняшней'
   if (props.mode === 'refund' && !form.reason.trim()) e.reason = 'Укажите причину'
   return { ...e, ...serverErrors.value }
 })
@@ -100,7 +99,7 @@ async function save() {
         </div>
         <div class="field">
           <label for="ad-date">{{ mode === 'refund' ? 'Дата возврата *' : 'Дата операции *' }}</label>
-          <DateInput v-model="form.date" input-id="ad-date" :max-date="new Date()" :invalid="!!err('date')" />
+          <DateInput v-model="form.date" input-id="ad-date" :max-date="today()" :invalid="!!err('date')" />
           <small v-if="err('date')" class="error">{{ err('date') }}</small>
         </div>
       </div>

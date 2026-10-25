@@ -6,9 +6,10 @@ import { useToast } from 'primevue/usetoast'
 import { useContractMutations, type ContractDetail } from '@/api/queries/contracts'
 import DateInput from '@/components/DateInput.vue'
 import MoneyText from '@/components/MoneyText.vue'
-import { formatDate, fromIsoDate, toIsoDate } from '@/utils/date'
+import { formatDate, fromIsoDate } from '@/utils/date'
 import { options, terminationInitiatorLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { todayIso } from '@/utils/today'
 import { lastMonthRent } from '../schemas'
 
 const props = defineProps<{ contract: ContractDetail }>()
@@ -17,7 +18,7 @@ const toast = useToast()
 const m = useContractMutations(() => props.contract.id)
 
 function defaultDay(): string {
-  const today = toIsoDate(new Date())
+  const today = todayIso()
   if (today < props.contract.startDate) return props.contract.startDate
   if (today > props.contract.endDate) return props.contract.endDate
   return today

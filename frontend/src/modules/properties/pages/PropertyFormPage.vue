@@ -11,10 +11,10 @@ import { useOrganizationSettings } from '@/api/queries/settings'
 import DateInput from '@/components/DateInput.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { toIsoDate } from '@/utils/date'
 import { fiscalModeLabels, options, propertyKindLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
 import { toTypedSchema } from '@/utils/zodSchema'
+import { today, todayIso } from '@/utils/today'
 import { areaToApi, areaToText, propertySchema, type PropertyForm } from '../schemas'
 
 const route = useRoute()
@@ -26,7 +26,6 @@ const isEdit = computed(() => !!id.value)
 const existing = useProperty(id)
 const org = useOrganizationSettings()
 
-const today = toIsoDate(new Date())
 const {
   values,
   errors,
@@ -55,7 +54,7 @@ const {
     expectedRentKop: 0,
     fiscalMode: 'none',
     initialStatus: 'free',
-    statusSince: today,
+    statusSince: todayIso(),
   },
 })
 
@@ -88,7 +87,7 @@ watch(
         expectedRentKop: p.expectedRentKop,
         fiscalMode: p.fiscalMode,
         initialStatus: 'free',
-        statusSince: today,
+        statusSince: todayIso(),
       },
     })
   },
@@ -324,7 +323,7 @@ const onSubmit = handleSubmit(async (v) => {
             <DateInput
               input-id="p-since"
               :model-value="values.statusSince"
-              :max-date="new Date()"
+              :max-date="today()"
               :invalid="!!shown('statusSince')"
               @update:model-value="(x) => setV('statusSince', x ?? '')"
             />

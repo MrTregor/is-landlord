@@ -3,7 +3,6 @@
 // В диалоге зачёта — открытые начисления с флажками; по умолчанию отмечены по порядку погашения до суммы остатка.
 // Удержание можно связать с заявкой объекта договора (05 разд. 9.2); затрата за счёт нанимателя оформляет
 // удержание сама — из диалога затраты.
-import dayjs from 'dayjs'
 import { computed, reactive, ref, watch } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import { useCharges, type Charge } from '@/api/queries/charges'
@@ -16,6 +15,7 @@ import MoneyText from '@/components/MoneyText.vue'
 import { formatDate } from '@/utils/date'
 import { options, refundMethodLabels } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
+import { today, todayIso } from '@/utils/today'
 import { allocationOrder } from '../allocation'
 import type { DepositOpKind } from '../types'
 
@@ -23,7 +23,6 @@ const props = defineProps<{ contractId: string; balanceKop: number; kind: Deposi
 const visible = defineModel<boolean>('visible', { required: true })
 const toast = useToast()
 const m = useDepositMutations()
-const today = () => dayjs().format('YYYY-MM-DD')
 
 const titles: Record<DepositOpKind, string> = {
   withhold: 'Удержать из залога',
@@ -90,7 +89,7 @@ watch(visible, (v) => {
   if (!v) return
   Object.assign(form, {
     amountKop: props.kind === 'refund' ? props.balanceKop || null : null,
-    opDate: today(),
+    opDate: todayIso(),
     reason: '',
     method: 'bank_transfer',
     chargeIds: [],
@@ -117,7 +116,7 @@ const errors = computed(() => {
   else if (props.kind === 'offset' && form.amountKop > debtOfSelected.value)
     e.amountKop = 'Сумма больше долга по выбранным начислениям'
   if (!form.opDate) e.opDate = 'Укажите дату'
-  else if (form.opDate > today()) e.opDate = 'Дата не может быть позже сегодняшней'
+  else if (form.opDate > todayIso()) e.opDate = 'Дата не может быть позже сегодняшней'
   if (!form.reason.trim()) e.reason = 'Укажите причину'
   if (props.kind === 'offset' && !form.chargeIds.length) e.chargeIds = 'Выберите начисления'
   return { ...e, ...serverErrors.value }
@@ -196,7 +195,7 @@ const pending = computed(() => m.withhold.isPending.value || m.offset.isPending.
         </div>
         <div class="field">
           <label for="do-date">Дата *</label>
-          <DateInput v-model="form.opDate" input-id="do-date" :max-date="new Date()" :invalid="!!err('opDate')" />
+          <DateInput v-model="form.opDate" input-id="do-date" :max-date="today()" :invalid="!!err('opDate')" />
           <small v-if="err('opDate')" class="error">{{ err('opDate') }}</small>
         </div>
       </div>
