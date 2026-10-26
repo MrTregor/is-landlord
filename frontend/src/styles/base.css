@@ -37,6 +37,17 @@ a {
   color: var(--p-datepicker-today-color);
 }
 
+/* Флажок «выбрать все» в выпадающем списке с несколькими значениями (MultiSelect) — с подписью «Все». Прозрачное поле
+   флажка растянуто на весь .p-checkbox, поэтому щелчок по подписи тоже переключает выбор. */
+.p-multiselect-header > .p-checkbox {
+  width: auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.p-multiselect-header > .p-checkbox::after {
+  content: 'Все';
+}
+
 /* Формы: подпись над полем, ошибка под полем, кнопки справа. */
 .form {
   display: flex;
