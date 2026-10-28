@@ -25,6 +25,7 @@ import { formatDate } from '@/utils/date'
 import { calendarKindLabels, manualEventKindLabels, options } from '@/utils/labels'
 import { parseProblem } from '@/utils/problem'
 import { todayIso } from '@/utils/today'
+import { calendarKindColors } from '../colors'
 
 type Kind = components['schemas']['CalendarEventKind']
 type ManualKind = components['schemas']['ManualCalendarEventKind']
@@ -70,6 +71,7 @@ const fcEvents = computed(() =>
         start: e.startTime ? `${e.date}T${e.startTime}` : e.date,
         end: e.startTime && e.endTime ? `${e.date}T${e.endTime}` : undefined,
         allDay: !e.startTime,
+        color: calendarKindColors[e.kind],
         className: className(e),
         extendedProps: { ev: e },
       })),
@@ -271,7 +273,9 @@ const kindOptions = options(calendarKindLabels)
       <div class="kinds">
         <div v-for="k in kindOptions" :key="k.value" class="field field--check">
           <Checkbox v-model="kinds" :input-id="`k-${k.value}`" :value="k.value" />
-          <label :for="`k-${k.value}`" :class="['legend', `ev-${k.value}`]">{{ k.label }}</label>
+          <label :for="`k-${k.value}`" class="legend" :style="{ borderLeftColor: calendarKindColors[k.value] }">{{
+            k.label
+          }}</label>
         </div>
       </div>
     </div>
@@ -453,7 +457,7 @@ const kindOptions = options(calendarKindLabels)
 }
 .legend {
   padding-left: 0.5rem;
-  border-left: 4px solid var(--ev-color);
+  border-left: 4px solid;
 }
 .calendar {
   padding: 1rem;
@@ -473,37 +477,7 @@ const kindOptions = options(calendarKindLabels)
 .pre {
   white-space: pre-wrap;
 }
-/* Цвета видов (14 разд. 11): сроки — синий, просрочки — красный, договоры и уведомления — фиолетовый,
-   регистрация и индексация — оранжевый, показы — зелёный, ремонты и поверка — серо-коричневый, прочее — серый. */
-.ev-payment_due {
-  --ev-color: #2563eb;
-}
-.ev-overdue {
-  --ev-color: #dc2626;
-}
-.ev-contract_end,
-.ev-contract_end_notice {
-  --ev-color: #7c3aed;
-}
-.ev-registration,
-.ev-indexation {
-  --ev-color: #ea580c;
-}
-.ev-showing {
-  --ev-color: #16a34a;
-}
-.ev-repair,
-.ev-meter_verification {
-  --ev-color: #8b7355;
-}
-.ev-custom {
-  --ev-color: #6b7280;
-}
-.calendar :deep([class*='ev-']) {
-  background-color: var(--ev-color);
-  border-color: var(--ev-color);
-  color: #fff;
-}
+/* Цвета видов — colors.ts (свойство события `color`, FullCalendar сам задаёт --fc-event-color). */
 .calendar :deep(.ev-done) {
   opacity: 0.45;
   text-decoration: line-through;
@@ -511,6 +485,6 @@ const kindOptions = options(calendarKindLabels)
 .calendar :deep(.ev-forecast) {
   border-style: dashed;
   border-width: 2px;
-  background-color: color-mix(in srgb, var(--ev-color) 70%, white);
+  background-color: color-mix(in srgb, var(--fc-event-color) 70%, white);
 }
 </style>

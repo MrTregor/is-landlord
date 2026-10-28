@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"landlord/backend/internal/billing/calc"
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
@@ -77,7 +78,7 @@ func (s *Service) receiptData(ctx context.Context, q *sqlc.Queries, d Data, cc c
 
 	var lines []paymentLine
 	if p.Purpose == "deposit" {
-		lines = append(lines, paymentLine{title: "Обеспечительный платёж", amountKop: p.AmountKop})
+		lines = append(lines, paymentLine{title: "Обеспечительный платёж", period: noPeriod, amountKop: p.AmountKop})
 	} else {
 		allocs, err := q.PaymentAllocations(ctx, p.ID)
 		if err != nil {
@@ -88,17 +89,12 @@ func (s *Service) receiptData(ctx context.Context, q *sqlc.Queries, d Data, cc c
 			if a.ReversedAt != nil {
 				continue
 			}
-			title, period := a.ChargeTitle, ""
-			if a.PeriodMonth != nil {
-				if i := strings.Index(title, ", "); i > 0 {
-					title, period = title[:i], title[i+2:]
-				}
-			}
+			title, period := splitChargeTitle(a.ChargeTitle, a.PeriodMonth)
 			lines = append(lines, paymentLine{title: title, period: period, amountKop: a.AmountKop})
 			allocated += a.AmountKop
 		}
 		if rest := p.AmountKop - allocated; rest > 0 {
-			lines = append(lines, paymentLine{title: "Аванс", amountKop: rest})
+			lines = append(lines, paymentLine{title: "Аванс", period: noPeriod, amountKop: rest})
 		}
 	}
 	d.Blocks["payment_lines"] = paymentLinesBlock(lines, p.AmountKop)
@@ -144,4 +140,20 @@ func (s *Service) fiscalText(ctx context.Context, q *sqlc.Queries, cc contractCt
 		return text, nil
 	}
 	return "Кассовый чек формируется", nil
+}
+
+// noPeriod — ячейка «Период» строки без расчётного месяца: залог, аванс, пени, разовые начисления
+// (docs/open-questions.md, № 114).
+const noPeriod = "—"
+
+// splitChargeTitle — назначение и период строки квитанции: «Плата за наём, октябрь 2026» → «Плата за наём» и
+// «октябрь 2026». Начисление за месяц с названием без периода — период по месяцу начисления; без месяца — «—».
+func splitChargeTitle(title string, periodMonth *date.Date) (string, string) {
+	if periodMonth == nil {
+		return title, noPeriod
+	}
+	if i := strings.Index(title, ", "); i > 0 {
+		return title[:i], title[i+2:]
+	}
+	return title, calc.MonthName(*periodMonth)
 }

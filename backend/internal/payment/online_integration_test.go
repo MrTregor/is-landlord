@@ -251,7 +251,7 @@ func TestCheckStatusAndExpire_FR06_1(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	s2 := o.start(t, "charges")
-	o.env.Clock.Advance(25 * time.Hour)
+	o.env.AdvanceAll(25 * time.Hour)
 	_, err := o.env.App.Payments.RunExpirePending(context.Background(), jobs.DailyArgs{BusinessDate: date.MustParse("2026-10-13")})
 	require.NoError(t, err)
 	var status, provider string

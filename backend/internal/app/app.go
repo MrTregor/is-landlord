@@ -146,7 +146,7 @@ func New(cfg *config.Config, log *slog.Logger, clk clock.Clock, database *db.DB,
 		fiscal.Config{CallbackURL: cfg.AtolCallbackURL, PublicURL: cfg.AppPublicURL})
 	a.Payments = payment.NewService(database, a.Audit, clk, a.Billing, a.Documents, a.Notify, client, payment.Online{
 		Client:          tbank.NewClient(cfg.TbankAPIURL, cfg.TbankTerminalKey, cfg.TbankPassword),
-		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log,
+		NotificationURL: cfg.TbankNotificationURL, PublicURL: cfg.AppPublicURL, Log: log, RealClock: realClk,
 	}, a.Fiscal)
 	a.Reconcile = reconciliation.NewService(database, a.Audit, clk, a.Files, a.Payments, a.Notify)
 	a.Requests = maintenance.NewService(database, a.Audit, clk, a.Notify)

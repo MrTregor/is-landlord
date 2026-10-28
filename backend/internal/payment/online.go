@@ -16,6 +16,7 @@ import (
 	"landlord/backend/internal/audit"
 	"landlord/backend/internal/notify"
 	"landlord/backend/internal/platform/apperr"
+	"landlord/backend/internal/platform/clock"
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/db"
 	"landlord/backend/internal/platform/db/sqlc"
@@ -32,6 +33,18 @@ type Online struct {
 	NotificationURL string // TBANK_NOTIFICATION_URL
 	PublicURL       string // APP_PUBLIC_URL
 	Log             *slog.Logger
+	// RealClock — реальное время для срока ссылки на оплату: это технический интервал банка, а не бизнес-дата
+	// (как сеансы, № 112). В демо дата системы может отставать от реальной, и ссылка истекала бы сразу
+	// (docs/open-questions.md, № 113). nil — часы системы.
+	RealClock clock.Clock
+}
+
+// linkNow — «сейчас» для сроков ссылок на оплату (№ 113).
+func (s *Service) linkNow() time.Time {
+	if s.online.RealClock != nil {
+		return s.online.RealClock.Now()
+	}
+	return s.clock.Now()
 }
 
 // SourceOnline — источник и способ онлайн-оплаты.
@@ -129,7 +142,7 @@ func (s *Service) StartOnline(ctx context.Context, in OnlineInput) (OnlineStarte
 		}
 		slices.SortFunc(requested, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
 		prev, err := tx.Q.ReusablePendingPayment(ctx, sqlc.ReusablePendingPaymentParams{
-			ContractID: c.ID, Purpose: in.Purpose, AmountKop: amount, Now: ptr(s.clock.Now()), ChargeIds: requested,
+			ContractID: c.ID, Purpose: in.Purpose, AmountKop: amount, Now: ptr(s.linkNow()), ChargeIds: requested,
 		})
 		switch {
 		case err == nil:
@@ -174,7 +187,7 @@ func (s *Service) initOnline(ctx context.Context, c sqlc.Contract, p sqlc.Paymen
 		email = *t.Email
 	}
 	result := strings.TrimRight(s.online.PublicURL, "/") + "/cabinet/payments/" + p.ID.String() + "/result"
-	due := s.clock.Now().Add(paymentLinkTTL).In(s.clock.Location()).Truncate(time.Second)
+	due := s.linkNow().Add(paymentLinkTTL).In(s.clock.Location()).Truncate(time.Second)
 	resp, callErr := s.online.Client.Init(ctx, tbank.InitRequest{
 		Amount: p.AmountKop, OrderID: p.ID.String(), Description: desc, NotificationURL: s.online.NotificationURL,
 		SuccessURL: result, FailURL: result, RedirectDueDate: due, Email: email, ContractNumber: c.Number,
@@ -535,7 +548,7 @@ func (s *Service) CheckStatus(ctx context.Context, paymentID uuid.UUID) error {
 // оплачен — проводится, иначе failed (DEADLINE_EXPIRED). Отбор — по условию, а не по часу запуска: пропущенный
 // запуск (без догоняющего) подберёт следующий (docs/open-questions.md, № 58).
 func (s *Service) ExpirePending(ctx context.Context, st *jobs.Stats) error {
-	list, err := s.db.Queries().ExpiredPendingPayments(ctx, ptr(s.clock.Now()))
+	list, err := s.db.Queries().ExpiredPendingPayments(ctx, ptr(s.linkNow()))
 	if err != nil {
 		return err
 	}
