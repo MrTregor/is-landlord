@@ -21,11 +21,11 @@ type Handler struct {
 // NewHandler создаёт обработчик.
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
-// sessionCookie — HttpOnly, Secure (кроме dev), SameSite=Lax, Path=/, без Expires: срок контролирует сервер.
+// sessionCookie — HttpOnly, Secure (кроме dev), SameSite=Strict, Path=/, без Expires: срок контролирует сервер.
 func (h *Handler) sessionCookie(value string, remove bool) *string {
 	c := &http.Cookie{ //nolint:gosec // Secure задаётся COOKIE_SECURE (false только в dev, проверяется config)
 		Name: CookieName, Value: value, Path: "/", HttpOnly: true, Secure: h.svc.cfg.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 	}
 	if remove {
 		c.MaxAge = -1
