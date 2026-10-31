@@ -1,7 +1,9 @@
 package report
 
 import (
+	"cmp"
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -98,10 +100,18 @@ func (s *Service) Dashboard(ctx context.Context) (api.Dashboard, error) {
 	if err != nil {
 		return out, err
 	}
-	for _, e := range events {
-		if e.Done || (e.Date.Before(today) && e.Kind != calendar.KindOverdue) {
-			continue
+	// calendar.List склеивает хранимые события и вычисляемые сроки без сортировки — список упорядочивается по дате,
+	// затем по времени начала (события без времени — первыми).
+	events = slices.DeleteFunc(events, func(e calendar.Event) bool {
+		return e.Done || (e.Date.Before(today) && e.Kind != calendar.KindOverdue)
+	})
+	slices.SortStableFunc(events, func(a, b calendar.Event) int {
+		if c := a.Date.Compare(b.Date); c != 0 {
+			return c
 		}
+		return cmp.Compare(deref(a.StartTime), deref(b.StartTime))
+	})
+	for _, e := range events {
 		out.Upcoming = append(out.Upcoming, calendar.ToDTO(e))
 	}
 	return out, nil

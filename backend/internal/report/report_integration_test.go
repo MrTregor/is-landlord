@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -324,7 +325,14 @@ func TestDebtsAndDashboard_FR_11_2(t *testing.T) {
 			ContractID *string `json:"contractId"`
 			DebtKop    int64   `json:"debtKop"`
 		} `json:"properties"`
+		Upcoming []struct {
+			Date string `json:"date"`
+		} `json:"upcoming"`
 	}
+	// Хранимое событие календарь отдаёт раньше вычисляемых просрочек — сводка всё равно упорядочивает по дате (FR-09).
+	r = w.c.Do(http.MethodPost, "/calendar/events", map[string]any{
+		"kind": "showing", "title": "Показ", "startsOn": "2026-10-18", "startTime": "18:30", "endTime": "19:00"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
 	r = w.c.Do(http.MethodGet, "/dashboard", nil)
 	require.Equal(t, http.StatusOK, r.Status, string(r.Body))
 	r.JSON(t, &dash)
@@ -340,6 +348,12 @@ func TestDebtsAndDashboard_FR_11_2(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+	require.GreaterOrEqual(t, len(dash.Upcoming), 3, "показ и просрочки сентября и октября")
+	assert.True(t, slices.IsSortedFunc(dash.Upcoming, func(a, b struct {
+		Date string `json:"date"`
+	}) int {
+		return strings.Compare(a.Date, b.Date)
+	}), "ближайшие события по дате: %v", dash.Upcoming)
 }
 
 // IT-18: XLSX каждого отчёта и выгрузки открывается excelize заново, заголовки и итоги на месте (FR-11.4, NFR-Comp-01).
