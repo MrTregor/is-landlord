@@ -99,7 +99,7 @@ cover:
 		cd backend && $(GO) test -tags integration -count=1 -coverprofile=coverage.out ./internal/billing/... && \
 		total=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$3); print $$3}'); \
 		echo "Покрытие internal/billing: $$total %"; \
-		awk -v t="$$total" 'BEGIN { exit (t < 70) }' || (echo "Покрытие ниже 70 %"; exit 1); \
+		awk -v t="$$total" 'BEGIN { exit (t < 75) }' || (echo "Покрытие ниже 75 %"; exit 1); \
 	else echo "Пакет internal/billing появится на этапе M4"; fi
 
 bench:

@@ -3,14 +3,19 @@
 package billing_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 
 	"landlord/backend/internal/platform/date"
 	"landlord/backend/internal/platform/jobs"
@@ -541,6 +546,176 @@ func TestJobsScreen_FR14_1(t *testing.T) {
 	}
 	w.c.Do(http.MethodGet, "/settings/jobs/runs?name=billing.rent_daily", nil).JSON(t, &runs)
 	assert.GreaterOrEqual(t, runs.Total, 1)
+}
+
+// Выгрузка начислений в Excel (FR-11.4): фильтры списка, статус «просрочено N дн.», ручные начисления,
+// отменённые не входят в итог.
+func TestExportCharges_FR_11_4(t *testing.T) {
+	w := setup(t, "2026-10-16", "j1")
+	id := w.contract(t, "2026-08-01", "2027-06-30", 3000000, nil)
+	list := w.charges(t, id)
+	aug := byMonth(list, "rent", "2026-08-01")
+	require.NotNil(t, aug)
+	w.pay(t, id, aug.ID, 3000000, "2026-08-14")
+	r := w.c.Do(http.MethodPost, "/charges", map[string]any{"contractId": id, "kind": "damage", "title": "Разбитое стекло",
+		"amountKop": 500000, "dueDate": "2026-10-30", "reason": "Акт осмотра"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	r = w.c.Do(http.MethodPost, "/charges", map[string]any{"contractId": id, "kind": "other", "title": "Ошибочное",
+		"amountKop": 100000, "dueDate": "2026-10-30", "reason": "Проверка"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	require.Equal(t, http.StatusOK, w.c.Do(http.MethodPost, "/charges/"+r.ID(t)+"/cancel", map[string]any{"reason": "Ошибка ввода"}).Status)
+
+	rows := func(t *testing.T, query string) [][]string {
+		t.Helper()
+		r := w.c.Do(http.MethodGet, "/charges.xlsx?contractId="+id+query, nil)
+		require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+		f, err := excelize.OpenReader(bytes.NewReader(r.Body))
+		require.NoError(t, err)
+		defer func() { _ = f.Close() }()
+		out, err := f.GetRows("Начисления", excelize.Options{RawCellValue: true})
+		require.NoError(t, err)
+		return out
+	}
+	find := func(rows [][]string, first string) []string {
+		for _, row := range rows {
+			if len(row) > 0 && row[0] == first {
+				return row
+			}
+		}
+		return nil
+	}
+
+	all := rows(t, "&sort=dueDate")
+	joined := ""
+	for _, row := range all {
+		joined += strings.Join(row, "|") + "\n"
+	}
+	assert.Contains(t, joined, "Оплачено|авто", "август оплачен")
+	assert.Contains(t, joined, "Ожидает оплаты, просрочено 31 дн.", "сентябрь: срок 15.09")
+	assert.Contains(t, joined, "Разбитое стекло")
+	assert.Contains(t, joined, "вручную")
+	assert.Contains(t, joined, "Отменено")
+	total := find(all, "Итого (без отменённых)")
+	require.NotNil(t, total)
+	var sum int64
+	for _, c := range list {
+		if c.Status != "cancelled" {
+			sum += c.AmountKop
+		}
+	}
+	assert.Equal(t, money(sum+500000), total[5], "итог по сумме — без отменённого «Ошибочное»")
+	assert.Equal(t, money(3000000), total[6], "оплачено — август")
+
+	// Фильтры вида и статуса — как у списка: только неоплаченная плата за наём.
+	only := rows(t, "&kind=rent&status=open&overdue=true")
+	text := ""
+	for _, row := range only {
+		text += strings.Join(row, "|") + "\n"
+	}
+	assert.NotContains(t, text, "Разбитое стекло")
+	assert.NotContains(t, text, "Оплачено|авто")
+	assert.Contains(t, text, "просрочено")
+}
+
+// money — сумма в рублях, как её хранит ячейка XLSX (11 разд. 1).
+func money(kop int64) string {
+	rub := strconv.FormatInt(kop/100, 10)
+	if kop%100 == 0 {
+		return rub
+	}
+	return rub + "." + strings.TrimSuffix(fmt.Sprintf("%02d", kop%100), "0")
+}
+
+// Итоговое начисление ЖКУ по акту возврата (05 разд. 6.3, FR-05.5): расход от последнего показания до показания
+// акта и фиксированная часть последнего месяца; повторного начисления нет.
+func TestFinalUtilitiesByReturnAct_FR05_5(t *testing.T) {
+	w := setup(t, "2026-10-20", "k2")
+	r := w.c.Do(http.MethodPost, "/properties/"+w.property+"/meters", map[string]any{
+		"type": "cold_water", "serialNumber": nil, "initialValue": "100", "initialDate": "2026-09-30", "verificationDue": nil, "note": nil})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	meter := r.ID(t)
+	r = w.c.Do(http.MethodPost, "/settings/tariffs", map[string]any{"meterType": "cold_water", "propertyId": w.property, "price": "50.00", "effectiveFrom": "2026-01-01", "note": nil})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	id := w.contract(t, "2026-10-01", "2027-08-31", 3000000, func(m map[string]any) {
+		m["utilitiesMode"] = "meters"
+		m["utilitiesFixedKop"] = 30000
+		m["paymentDay"] = 10
+	})
+	var acts []struct {
+		ID string `json:"id"`
+	}
+	w.c.Do(http.MethodGet, "/contracts/"+id+"/acts", nil).JSON(t, &acts)
+	require.Len(t, acts, 1)
+	sign := func(act, day, value string) {
+		t.Helper()
+		r := w.c.Do(http.MethodPut, "/acts/"+act, map[string]any{
+			"actDate": day, "keysCount": 2, "conditionNotes": "Хорошее", "inventory": []map[string]any{},
+			"readings": []map[string]any{{"meterId": meter, "value": value}},
+		})
+		require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+		r = w.c.Do(http.MethodPost, "/acts/"+act+"/sign", map[string]any{"signedOn": day})
+		require.Equal(t, http.StatusOK, r.Status, string(r.Body))
+	}
+	sign(acts[0].ID, "2026-10-01", "100")
+
+	r = w.c.Do(http.MethodPost, "/contracts/"+id+"/acts", map[string]any{"kind": "return"})
+	require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	sign(r.ID(t), "2026-10-20", "110")
+
+	var final []charge
+	for _, c := range w.charges(t, id) {
+		if c.Kind == "utilities" && strings.HasPrefix(c.Title, "Компенсация ЖКУ по акту возврата") {
+			final = append(final, c)
+		}
+	}
+	require.Len(t, final, 1, "одно итоговое начисление ЖКУ")
+	assert.Equal(t, int64(10*5000+30000), final[0].AmountKop, "10 м³ × 50,00 и фиксированная часть 300,00")
+	assert.Equal(t, "Компенсация ЖКУ по акту возврата от 20.10.2026", final[0].Title)
+
+	var n int
+	require.NoError(t, testsupport.Owner(t).QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_log WHERE action = 'charge.create' AND entity_id = $1`, final[0].ID).Scan(&n))
+	assert.Equal(t, 1, n, "начисление записано в журнал действий")
+}
+
+// Расхождение «переплата» (05 разд. 10.6): аванс уходит на новые начисления — сумма расхождения уменьшается,
+// аванс израсходован — расхождение закрывается автоматически.
+func TestOverpaymentSync_FR07_3(t *testing.T) {
+	w := setup(t, "2026-10-16", "l3")
+	id := w.contract(t, "2026-10-01", "2027-08-31", 3000000, nil)
+	oct := byMonth(w.charges(t, id), "rent", "2026-10-01")
+	require.NotNil(t, oct)
+	w.pay(t, id, oct.ID, 4000000, "2026-10-14")
+
+	db := testsupport.Owner(t)
+	state := func() (string, int64) {
+		t.Helper()
+		var status string
+		var amount int64
+		require.NoError(t, db.QueryRow(context.Background(),
+			`SELECT status || coalesce('/' || resolution, ''), amount_kop FROM discrepancies
+			 WHERE contract_id = $1 AND kind = 'overpayment'`, id).Scan(&status, &amount))
+		return status, amount
+	}
+	status, amount := state()
+	assert.Equal(t, "open", status)
+	assert.Equal(t, int64(1000000), amount, "переплата 10 000 ₽")
+
+	manual := func(amount int64) {
+		t.Helper()
+		r := w.c.Do(http.MethodPost, "/charges", map[string]any{"contractId": id, "kind": "other", "title": "Ключи",
+			"amountKop": amount, "dueDate": "2026-10-30", "reason": "Утеря ключей"})
+		require.Equal(t, http.StatusCreated, r.Status, string(r.Body))
+	}
+	manual(600000)
+	status, amount = state()
+	assert.Equal(t, "open", status)
+	assert.Equal(t, int64(400000), amount, "аванс частично ушёл на новое начисление")
+
+	manual(500000)
+	status, amount = state()
+	assert.Equal(t, "resolved/auto_closed", status, "аванс израсходован")
+	assert.Equal(t, int64(400000), amount)
 }
 
 // Начисления и показания — только для собственника (NFR-Sec-02).
